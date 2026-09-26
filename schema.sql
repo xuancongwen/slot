@@ -1,0 +1,60 @@
+PRAGMA journal_mode=WAL;
+PRAGMA foreign_keys=ON;
+PRAGMA busy_timeout=5000;
+
+CREATE TABLE IF NOT EXISTS users (
+ id INTEGER PRIMARY KEY, email TEXT NOT NULL UNIQUE, password TEXT NOT NULL,
+ name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, timezone TEXT NOT NULL DEFAULT 'UTC',
+ days TEXT NOT NULL DEFAULT '12345', start_min INTEGER NOT NULL DEFAULT 540,
+ end_min INTEGER NOT NULL DEFAULT 1020, duration INTEGER NOT NULL DEFAULT 30,
+ buffer INTEGER NOT NULL DEFAULT 0, notice INTEGER NOT NULL DEFAULT 120,
+ horizon INTEGER NOT NULL DEFAULT 30, location TEXT NOT NULL DEFAULT '',
+ enabled INTEGER NOT NULL DEFAULT 0, write_calendar INTEGER,
+ created INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions (
+ token TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ expires INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS accounts (
+ id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
+ identity TEXT NOT NULL, token BLOB NOT NULL, UNIQUE(user_id,identity)
+);
+CREATE TABLE IF NOT EXISTS calendars (
+ id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+ google_id TEXT NOT NULL, name TEXT NOT NULL, role TEXT NOT NULL,
+ check_busy INTEGER NOT NULL DEFAULT 0, UNIQUE(account_id,google_id)
+);
+CREATE TABLE IF NOT EXISTS oauth_states (
+ state TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
+ session TEXT NOT NULL, verifier TEXT NOT NULL, expires INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS blocks (
+ id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
+ day TEXT NOT NULL, UNIQUE(user_id,day)
+);
+CREATE TABLE IF NOT EXISTS bookings (
+ id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
+ calendar_id INTEGER NOT NULL REFERENCES calendars(id),
+ guest_name TEXT NOT NULL, guest_email TEXT NOT NULL,
+ start INTEGER NOT NULL, end INTEGER NOT NULL, block_start INTEGER NOT NULL, block_end INTEGER NOT NULL,
+ title TEXT NOT NULL, location TEXT NOT NULL, timezone TEXT NOT NULL,
+ manage_token TEXT NOT NULL UNIQUE,
+ status TEXT NOT NULL CHECK(status IN ('pending','confirmed','cancel_pending','cancelled','failed')),
+ created INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+ next_attempt INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',
+ CHECK(end > start), CHECK(block_end > block_start)
+);
+CREATE INDEX IF NOT EXISTS bookings_host_time ON bookings(user_id,block_start,block_end);
+CREATE INDEX IF NOT EXISTS bookings_retry ON bookings(status,next_attempt);
+CREATE TRIGGER IF NOT EXISTS no_overlapping_bookings BEFORE INSERT ON bookings
+WHEN NEW.status IN ('pending','confirmed','cancel_pending')
+BEGIN
+ SELECT RAISE(ABORT,'slot_overlap') WHERE EXISTS (
+  SELECT 1 FROM bookings WHERE (user_id=NEW.user_id OR calendar_id IN (
+   SELECT id FROM calendars WHERE google_id=(SELECT google_id FROM calendars WHERE id=NEW.calendar_id)
+  ))
+  AND status IN ('pending','confirmed','cancel_pending')
+  AND block_start < NEW.block_end AND block_end > NEW.block_start
+ );
+END;

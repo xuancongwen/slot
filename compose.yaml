@@ -1,0 +1,23 @@
+services:
+  slot:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${PUBLIC_PORT:-8080}:8080"
+      - "127.0.0.1:${ADMIN_PORT:-8081}:8081"
+    environment:
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
+      ADMIN_URL: ${ADMIN_URL:-http://localhost:8081}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      REGISTRATION_OPEN: ${REGISTRATION_OPEN:-true}
+      REGISTRATION_CODE: ${REGISTRATION_CODE:-}
+    volumes:
+      - slot-data:/data
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 30s
+
+volumes:
+  slot-data:
