@@ -33,7 +33,11 @@ type Page struct {
 	MeetingType                                         MeetingType
 	Timezones                                           []string
 	Slots                                               []Slot
-	Date, MinDate, MaxDate, BookingURL, PublicURL       string
+	Weeks                                               [][]CalendarDay
+	Date, BookingURL, PublicURL                         string
+	Month, MonthLabel, PrevMonth, NextMonth             string
+	GuestTimezone, SelectedLabel                        string
+	DetectTimezone                                      bool
 	Booking                                             Booking
 	Start                                               int64
 	SlotLabel, Ticket                                   string
@@ -614,36 +618,86 @@ func (a *App) hostPage(w http.ResponseWriter, r *http.Request) {
 	}
 	a.render(w, r, "host", Page{Title: "Meet with " + u.Name, User: u, MeetingTypes: ts, BookingURL: "/b/" + u.Slug}, 200)
 }
+
+// CalendarDay is one cell of the guest's month grid, dated in the guest's timezone.
+type CalendarDay struct {
+	Date                    string
+	Day                     int
+	InMonth, Open, Selected bool
+}
+
+const dateLayout = "2006-01-02"
+
 func (a *App) publicPage(w http.ResponseWriter, r *http.Request) {
 	u, t, ok := a.publicMeetingType(w, r)
 	if !ok {
 		return
 	}
-	loc, e := time.LoadLocation(t.Timezone)
+	host, e := time.LoadLocation(t.Timezone)
 	if e != nil {
 		a.internal(w, r, e)
 		return
 	}
-	now := time.Now()
-	date := r.URL.Query().Get("date")
-	if date == "" {
-		date = now.In(loc).Format("2006-01-02")
+	q := r.URL.Query()
+	// Without ?tz the page renders in the meeting type's zone and a script swaps in the browser's.
+	guestTZ := q.Get("tz")
+	detect := guestTZ == ""
+	if !validTimezone(guestTZ) {
+		guestTZ = t.Timezone
 	}
-	day, e := time.ParseInLocation("2006-01-02", date, loc)
-	minDate, maxDate := now.In(loc).Format("2006-01-02"), now.In(loc).AddDate(0, 0, t.Horizon).Format("2006-01-02")
-	if e != nil || date < minDate || date > maxDate {
-		a.fail(w, r, 400, "Choose a date within the booking window.")
+	guest, _ := time.LoadLocation(guestTZ)
+	now := time.Now()
+	minDate := now.In(guest).Format(dateLayout)
+	maxDate := now.In(host).AddDate(0, 0, t.Horizon).In(guest).Format(dateLayout)
+	date := q.Get("date")
+	var day time.Time
+	if date != "" {
+		day, e = time.ParseInLocation(dateLayout, date, guest)
+		if e != nil || date < minDate || date > maxDate {
+			a.fail(w, r, 400, "Choose a date within the booking window.")
+			return
+		}
+	}
+	month := q.Get("month")
+	if month == "" {
+		month = minDate[:7]
+		if date != "" {
+			month = date[:7]
+		}
+	}
+	monthStart, e := time.ParseInLocation("2006-01", month, guest)
+	if e != nil || month < minDate[:7] || month > maxDate[:7] {
+		a.fail(w, r, 400, "Choose a month within the booking window.")
 		return
 	}
-	p := Page{Title: t.Name + " with " + u.Name, User: u, MeetingType: t, Date: date, MinDate: minDate, MaxDate: maxDate, BookingURL: "/b/" + u.Slug + "/" + t.Slug}
-	p.Slots, e = a.availability(r.Context(), u, t, day, now)
+	monthEnd := monthStart.AddDate(0, 1, 0)
+	p := Page{Title: t.Name + " with " + u.Name, User: u, MeetingType: t, Date: date, BookingURL: "/b/" + u.Slug + "/" + t.Slug, GuestTimezone: guestTZ, DetectTimezone: detect, Timezones: a.timezones, Month: month, MonthLabel: monthStart.Format("January 2006")}
+	if month > minDate[:7] {
+		p.PrevMonth = monthStart.AddDate(0, -1, 0).Format("2006-01")
+	}
+	if month < maxDate[:7] {
+		p.NextMonth = monthEnd.Format("2006-01")
+	}
+	slots, e := a.availability(r.Context(), u, t, monthStart, monthEnd, now)
 	if e != nil {
 		slog.Warn("availability unavailable", "host", u.ID, "error", e)
 		p.Error = "Availability could not be verified with Google. Please try again shortly."
 		a.render(w, r, "booking", p, 503)
 		return
 	}
-	if chosen := r.URL.Query().Get("start"); chosen != "" {
+	open := map[string][]Slot{}
+	for _, s := range slots {
+		d := time.Unix(s.Start, 0).In(guest).Format(dateLayout)
+		open[d] = append(open[d], s)
+	}
+	p.Weeks = calendarWeeks(monthStart, date, open)
+	if date == "" {
+		a.render(w, r, "booking", p, 200)
+		return
+	}
+	p.SelectedLabel = day.Format("Monday, January 2")
+	p.Slots = guestLabels(open[date], guest)
+	if chosen := q.Get("start"); chosen != "" {
 		start, e := strconv.ParseInt(chosen, 10, 64)
 		if e != nil {
 			a.fail(w, r, 400, "Invalid time")
@@ -667,6 +721,40 @@ func (a *App) publicPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	a.render(w, r, "booking", p, 200)
+}
+
+// calendarWeeks lays out monthStart's month as Sunday-first weeks.
+func calendarWeeks(monthStart time.Time, selected string, open map[string][]Slot) [][]CalendarDay {
+	end := monthStart.AddDate(0, 1, 0)
+	var weeks [][]CalendarDay
+	for d := monthStart.AddDate(0, 0, -int(monthStart.Weekday())); d.Before(end); {
+		week := make([]CalendarDay, 0, 7)
+		for range 7 {
+			key := d.Format(dateLayout)
+			week = append(week, CalendarDay{Date: key, Day: d.Day(), InMonth: d.Month() == monthStart.Month(), Open: len(open[key]) > 0, Selected: key == selected})
+			d = d.AddDate(0, 0, 1)
+		}
+		weeks = append(weeks, week)
+	}
+	return weeks
+}
+
+// guestLabels shows times in the guest's zone, adding the UTC offset only on a day
+// whose offset changes, where a repeated hour would otherwise show twice.
+func guestLabels(slots []Slot, loc *time.Location) []Slot {
+	offsets := map[string]bool{}
+	for _, s := range slots {
+		offsets[time.Unix(s.Start, 0).In(loc).Format("-07:00")] = true
+	}
+	layout := "15:04"
+	if len(offsets) > 1 {
+		layout = "15:04 (UTC-07:00)"
+	}
+	out := make([]Slot, len(slots))
+	for i, s := range slots {
+		out[i] = Slot{Start: s.Start, Label: time.Unix(s.Start, 0).In(loc).Format(layout)}
+	}
+	return out
 }
 
 // A signed ticket freezes host, meeting type, slot, duration, expiry, and an idempotency key.
@@ -732,14 +820,11 @@ func (a *App) book(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	loc, e := time.LoadLocation(t.Timezone)
-	if e != nil {
-		a.internal(w, r, e)
-		return
+	guestTZ := r.PostForm.Get("tz")
+	if !validTimezone(guestTZ) {
+		guestTZ = t.Timezone
 	}
-	local := time.Unix(start, 0).In(loc)
-	day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
-	slots, e := a.availability(r.Context(), u, t, day, time.Now())
+	slots, e := a.availability(r.Context(), u, t, time.Unix(start, 0), time.Unix(start+1, 0), time.Now())
 	if e != nil {
 		a.fail(w, r, 503, "Could not verify availability with Google. Please try again.")
 		return
@@ -754,7 +839,7 @@ func (a *App) book(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 409, "That time is no longer available. Please choose another slot.")
 		return
 	}
-	b := Booking{ID: id, UserID: u.ID, CalendarID: u.WriteCalendar.Int64, GuestName: name, GuestEmail: email, Start: start, End: start + int64(t.Duration*60), BlockStart: start - int64(t.Buffer*60), BlockEnd: start + int64((t.Duration+t.Buffer)*60), Title: t.Name + ": " + name + " / " + u.Name, Location: location, Meet: meet, Timezone: t.Timezone, ManageToken: token, Status: "pending", Created: time.Now().Unix()}
+	b := Booking{ID: id, UserID: u.ID, CalendarID: u.WriteCalendar.Int64, GuestName: name, GuestEmail: email, Start: start, End: start + int64(t.Duration*60), BlockStart: start - int64(t.Buffer*60), BlockEnd: start + int64((t.Duration+t.Buffer)*60), Title: t.Name + ": " + name + " / " + u.Name, Location: location, Meet: meet, Timezone: t.Timezone, GuestTimezone: guestTZ, ManageToken: token, Status: "pending", Created: time.Now().Unix()}
 	if e = a.reserve(r.Context(), b); e != nil {
 		if existing, err := a.getBooking(r.Context(), token); err == nil {
 			http.Redirect(w, r, "/manage/"+existing.ManageToken, 303)

@@ -11,3 +11,10 @@ if (document.querySelector('[data-pending]')) {
 document.querySelectorAll('input[data-detect-timezone]').forEach(input => {
   if (!input.value) input.value = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
 });
+const guestPage = document.querySelector('[data-detect-guest-timezone]');
+const guestZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+if (guestPage && guestZone && guestZone !== guestPage.dataset.detectGuestTimezone) {
+  const url = new URL(window.location.href);
+  url.searchParams.set('tz', guestZone);
+  window.location.replace(url);
+}

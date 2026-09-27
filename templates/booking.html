@@ -1,5 +1,5 @@
 {{define "booking"}}{{template "head" .}}
-<main class="public-layout">
+<main class="public-layout"{{if .DetectTimezone}} data-detect-guest-timezone="{{.GuestTimezone}}"{{end}}>
   <section class="host-intro">
     <h1>{{.MeetingType.Name}}</h1>
     <p class="muted">with {{.User.Name}}</p>
@@ -9,22 +9,32 @@
     </div>
     <div class="meeting-detail">
       <span>◎</span>
-      <div><strong>{{.MeetingType.Timezone}}</strong><small>All times shown in the host’s timezone.</small></div>
+      <div><strong>{{.GuestTimezone}}</strong><small>Times shown in this timezone, currently {{utcOffset .GuestTimezone}}.</small></div>
     </div>
+    <form method="get" action="{{.BookingURL}}" class="inline-form timezone-form">
+      <input type="hidden" name="month" value="{{.Month}}">
+      {{if .Date}}<input type="hidden" name="date" value="{{.Date}}">{{end}}
+      <label class="grow">Change timezone
+        <input name="tz" value="{{.GuestTimezone}}" list="timezones" autocomplete="off" required>
+      </label>
+      <button class="secondary">Update</button>
+    </form>
+    {{template "timezones" .}}
   </section>
 
   <section class="card booking-card">
     {{template "messages" .}}
     {{if .Start}}
-    <a class="back-link" href="{{.BookingURL}}?date={{.Date}}">← Pick a different time</a>
+    <a class="back-link" href="{{.BookingURL}}?tz={{.GuestTimezone}}&amp;month={{.Month}}&amp;date={{.Date}}">← Pick a different time</a>
     <h2>Your details</h2>
     <div class="selected-time">
-      <strong>{{.Date}}</strong>
-      <span>{{.SlotLabel}} · {{.MeetingType.Duration}} min</span>
+      <strong>{{.SelectedLabel}}</strong>
+      <span>{{.SlotLabel}} · {{.MeetingType.Duration}} min · {{.GuestTimezone}}</span>
     </div>
     <form method="post" action="{{.BookingURL}}">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <input type="hidden" name="ticket" value="{{.Ticket}}">
+      <input type="hidden" name="tz" value="{{.GuestTimezone}}">
       <label>Your name
         <input name="name" autocomplete="name" maxlength="100" required placeholder="Alex Morgan">
       </label>
@@ -46,22 +56,40 @@
       <button class="full">Book this time</button>
       <p class="hint">Your host will receive your name and email. Google will send a calendar invitation once the booking is confirmed.</p>
     </form>
-    {{else}}
+    {{else if .Weeks}}
     <h2>Choose a day & time</h2>
-    <form method="get" class="date-form">
-      <label>Date in {{.MeetingType.Timezone}}
-        <input type="date" name="date" value="{{.Date}}" min="{{.MinDate}}" max="{{.MaxDate}}" required>
-      </label>
-      <button class="secondary">Show times</button>
-    </form>
-    <div class="slots">
-      {{range .Slots}}
-      <a class="slot" href="{{$.BookingURL}}?date={{$.Date}}&amp;start={{.Start}}">{{.Label}}<span>↗</span></a>
-      {{else}}{{if not .Error}}
-      <div class="empty"><p>No open times on this date. Try another day.</p></div>
-      {{end}}{{end}}
+    <div class="scheduler{{if .Date}} with-times{{end}}">
+      <div>
+        <div class="month-nav">
+          {{if .PrevMonth}}<a href="{{.BookingURL}}?tz={{.GuestTimezone}}&amp;month={{.PrevMonth}}" aria-label="Previous month">‹</a>{{else}}<span aria-hidden="true">‹</span>{{end}}
+          <strong>{{.MonthLabel}}</strong>
+          {{if .NextMonth}}<a href="{{.BookingURL}}?tz={{.GuestTimezone}}&amp;month={{.NextMonth}}" aria-label="Next month">›</a>{{else}}<span aria-hidden="true">›</span>{{end}}
+        </div>
+        <table class="month">
+          <thead>
+            <tr><th>Sun</th><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th></tr>
+          </thead>
+          <tbody>
+            {{range .Weeks}}<tr>{{range .}}<td>{{if .InMonth}}{{if .Open}}<a class="day open{{if .Selected}} selected{{end}}" href="{{$.BookingURL}}?tz={{$.GuestTimezone}}&amp;month={{$.Month}}&amp;date={{.Date}}"{{if .Selected}} aria-current="date"{{end}}>{{.Day}}</a>{{else}}<span class="day">{{.Day}}</span>{{end}}{{end}}</td>{{end}}</tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+      {{if .Date}}
+      <div class="day-times">
+        <strong>{{.SelectedLabel}}</strong>
+        <div class="slots">
+          {{range .Slots}}
+          <a class="slot" href="{{$.BookingURL}}?tz={{$.GuestTimezone}}&amp;month={{$.Month}}&amp;date={{$.Date}}&amp;start={{.Start}}">{{.Label}}<span>→</span></a>
+          {{else}}
+          <p class="hint">No open times on this date.</p>
+          {{end}}
+        </div>
+      </div>
+      {{else}}
+      <p class="hint">Highlighted dates have open times. Availability is checked again when you book.</p>
+      {{end}}
     </div>
-    <p class="hint">Availability is checked again when you book.</p>
     {{end}}
   </section>
 </main>

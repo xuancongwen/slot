@@ -119,6 +119,14 @@ func locationID(t *testing.T, a *App, u User, label string) string {
 	}
 	return fmt.Sprint(id)
 }
+func mustLoad(t *testing.T, tz string) *time.Location {
+	t.Helper()
+	loc, e := time.LoadLocation(tz)
+	if e != nil {
+		t.Fatal(e)
+	}
+	return loc
+}
 func bookingFor(u User, start time.Time) Booking {
 	return Booking{ID: randomHex(16), UserID: u.ID, CalendarID: u.WriteCalendar.Int64, GuestName: "Guest", GuestEmail: "guest@example.com", Start: start.Unix(), End: start.Add(30 * time.Minute).Unix(), BlockStart: start.Unix(), BlockEnd: start.Add(30 * time.Minute).Unix(), Title: "Guest / Alex", Timezone: "UTC", ManageToken: randomHex(32), Created: time.Now().Unix()}
 }
@@ -281,12 +289,12 @@ func TestPublicBookingFlow(t *testing.T) {
 	h := a.publicHandler()
 	day := tomorrow()
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("GET", "/b/alex/chat?date="+day.Format("2006-01-02"), nil))
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/b/alex/chat?tz=UTC&date="+day.Format("2006-01-02"), nil))
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "Choose a day") {
 		t.Fatalf("page: %d %s", w.Code, w.Body)
 	}
 	ticket := a.ticket(u.ID, mt, day.Unix())
-	form := url.Values{"ticket": {ticket}, "name": {"Guest <script>alert(1)</script>"}, "email": {"guest@example.com"}, "location": {locationID(t, a, u, "Google Meet")}}
+	form := url.Values{"ticket": {ticket}, "name": {"Guest <script>alert(1)</script>"}, "email": {"guest@example.com"}, "location": {locationID(t, a, u, "Google Meet")}, "tz": {"Asia/Singapore"}}
 	w = formRequest(h, "/b/alex/chat", form, false)
 	if w.Code != 303 {
 		t.Fatalf("book: %d %s", w.Code, w.Body)
@@ -310,6 +318,9 @@ func TestPublicBookingFlow(t *testing.T) {
 	if strings.Contains(w.Body.String(), "Guest <script>") {
 		t.Fatal("unescaped guest name")
 	}
+	if want := day.In(mustLoad(t, "Asia/Singapore")).Format("15:04"); !strings.Contains(w.Body.String(), want) {
+		t.Fatalf("manage page not in guest timezone, want %s", want)
+	}
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest("GET", manage+"/event.ics", nil))
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "BEGIN:VEVENT") {
@@ -331,7 +342,7 @@ func TestFailClosedAndDaysOff(t *testing.T) {
 	day := tomorrow()
 	day = time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, time.UTC)
 	f.busyErr = errors.New("Google unavailable")
-	if _, e := a.availability(context.Background(), u, mt, day, time.Now()); e == nil {
+	if _, e := a.availability(context.Background(), u, mt, day, day.AddDate(0, 0, 1), time.Now()); e == nil {
 		t.Fatal("availability allowed on Google error")
 	}
 	f.busyErr = nil
@@ -339,9 +350,89 @@ func TestFailClosedAndDaysOff(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	s, e := a.availability(context.Background(), u, mt, day, time.Now())
+	s, e := a.availability(context.Background(), u, mt, day, day.AddDate(0, 0, 1), time.Now())
 	if e != nil || len(s) > 0 {
 		t.Fatal("day off ignored")
+	}
+}
+
+// A guest's day in Singapore spans two of a UTC meeting type's days; only slots
+// starting inside the guest's day belong to it.
+func TestAvailabilitySpansGuestDay(t *testing.T) {
+	a, _ := testApp(t)
+	u := seedHost(t, a, "alex")
+	a.db.Exec("UPDATE meeting_types SET start_min=540,end_min=660 WHERE user_id=?", u.ID)
+	mt := chatType(t, a, u)
+	sgt := mustLoad(t, "Asia/Singapore")
+	d := time.Now().In(sgt).AddDate(0, 0, 3)
+	guestDay := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, sgt)
+	slots, e := a.availability(context.Background(), u, mt, guestDay, guestDay.AddDate(0, 0, 1), time.Now())
+	if e != nil {
+		t.Fatal(e)
+	}
+	var got []string
+	for _, s := range slots {
+		got = append(got, time.Unix(s.Start, 0).UTC().Format("Jan 2 15:04"))
+	}
+	hostDay := guestDay.Format("Jan 2") // 00:00–24:00 SGT covers 09:00–11:00 UTC of the same date.
+	if want := []string{hostDay + " 09:00", hostDay + " 09:30", hostDay + " 10:00", hostDay + " 10:30"}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("slots %v, want %v", got, want)
+	}
+	a.db.Exec("INSERT INTO blocks(user_id,day) VALUES(?,?)", u.ID, guestDay.Format("2006-01-02"))
+	if slots, _ = a.availability(context.Background(), u, mt, guestDay, guestDay.AddDate(0, 0, 1), time.Now()); len(slots) != 0 {
+		t.Fatal("day off in the meeting type's timezone ignored")
+	}
+}
+func TestGuestCalendarPage(t *testing.T) {
+	a, _ := testApp(t)
+	seedHost(t, a, "alex")
+	h := a.publicHandler()
+	get := func(path string) string {
+		t.Helper()
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		if w.Code != 200 {
+			t.Fatalf("%s: %d %s", path, w.Code, w.Body)
+		}
+		return w.Body.String()
+	}
+	sgt := mustLoad(t, "Asia/Singapore")
+	date := time.Now().In(sgt).AddDate(0, 0, 2).Format("2006-01-02")
+	body := get("/b/alex/chat?tz=Asia/Singapore&date=" + date)
+	for _, want := range []string{`aria-current="date"`, "date=" + date, "17:00", "Asia/Singapore"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	if strings.Contains(body, "data-detect-guest-timezone") {
+		t.Error("explicit timezone should not be re-detected")
+	}
+	if body = get("/b/alex/chat"); !strings.Contains(body, `data-detect-guest-timezone="UTC"`) {
+		t.Error("page without tz should ask the browser for its zone")
+	}
+	if body = get("/b/alex/chat?tz=Not/AZone"); !strings.Contains(body, "UTC") {
+		t.Error("invalid timezone did not fall back to the meeting type's")
+	}
+}
+func TestCalendarWeeks(t *testing.T) {
+	october := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC) // A Thursday.
+	weeks := calendarWeeks(october, "2026-10-05", map[string][]Slot{"2026-10-05": {{}}})
+	if len(weeks) != 5 || weeks[0][4].Day != 1 || weeks[0][3].InMonth || !weeks[4][6].InMonth {
+		t.Fatalf("layout: %+v", weeks)
+	}
+	if monday := weeks[1][1]; monday.Date != "2026-10-05" || !monday.Open || !monday.Selected {
+		t.Fatalf("October 5: %+v", monday)
+	}
+}
+func TestGuestLabelsMarkRepeatedHour(t *testing.T) {
+	ny := mustLoad(t, "America/New_York")
+	first := time.Date(2026, 11, 1, 1, 30, 0, 0, ny) // EDT; the same wall time repeats in EST.
+	s := guestLabels([]Slot{{Start: first.Unix()}, {Start: first.Add(time.Hour).Unix()}}, ny)
+	if s[0].Label != "01:30 (UTC-04:00)" || s[1].Label != "01:30 (UTC-05:00)" {
+		t.Fatalf("labels %q %q", s[0].Label, s[1].Label)
+	}
+	if s = guestLabels([]Slot{{Start: first.AddDate(0, 0, 1).Unix()}}, ny); s[0].Label != "01:30" {
+		t.Fatalf("ordinary day label %q", s[0].Label)
 	}
 }
 func TestPortsCSRFAndUserIsolation(t *testing.T) {
