@@ -11,7 +11,8 @@ A small Google Calendar booking app for a home lab. One Go process, one SQLite d
 - Combined free/busy checks across selected calendars; one destination calendar for bookings.
 - A public booking link for each user: `/b/your-name`, listing their meeting types at `/b/your-name/type`. No public user directory.
 - Multiple meeting types per user, each with its own length, IANA timezone, weekly availability, buffers, minimum notice, and booking horizon. A per-type timezone lets you publish a schedule for a trip alongside your usual one.
-- Full days off and one location/link per user.
+- Full days off per user.
+- Locations in each user's profile: Google Meet (a fresh link per booking, created by Google) plus any links or addresses, such as a Zoom room. Guests pick one, the default preselected, or enter their own.
 - Pause/publish controls, upcoming and past booking list, cancellation, and password changes.
 - Google invitations and an optional `.ics` download.
 - Durable Google write retries, including after a restart. Uncertain bookings continue reserving the slot.
@@ -107,7 +108,7 @@ Google Calendar does not offer an atomic “insert only if still free” operati
 
 - One daily working-hours interval per meeting type, and full-day exceptions per host.
 - Times on the public page are explicitly shown in the host's timezone, including the UTC offset. Calendar invitations display in the guest's own calendar timezone.
-- Reschedule by cancelling and booking again. No payments, round-robin teams, reminder service, or automatic Meet links; a fixed meeting URL can be entered as the location.
+- Reschedule by cancelling and booking again. No payments, round-robin teams, reminder service, or per-booking Zoom meetings; a Zoom location is a fixed room link.
 - No account email verification, forgotten-password email flow, or site-wide super-admin. Protect registration through the private admin interface and optional code.
 - Reconnect/refresh Google accounts from the admin page. This version does not include account deletion or a disconnect UI; Google permissions can be revoked from the Google account, which causes affected booking operations to fail closed until reconnected or reconfigured.
 - Google free/busy is live, but external event edits/deletions do not rewrite Slot's booking records. Manage Slot bookings in Slot. If someone deletes a Slot event directly in Google, cancel its record in Slot to release the local reservation.

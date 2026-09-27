@@ -29,6 +29,7 @@ type Page struct {
 	Blocks                                              []string
 	Days                                                []DayOption
 	MeetingTypes                                        []MeetingType
+	Locations                                           []Location
 	MeetingType                                         MeetingType
 	Timezones                                           []string
 	Slots                                               []Slot
@@ -109,6 +110,9 @@ func (a *App) adminHandler() http.Handler {
 	m.HandleFunc("GET /types/{id}", a.authenticated(a.meetingTypePage))
 	m.HandleFunc("POST /types/{id}", a.authenticated(a.saveMeetingType))
 	m.HandleFunc("POST /types/{id}/delete", a.authenticated(a.deleteMeetingType))
+	m.HandleFunc("POST /locations", a.authenticated(a.addLocation))
+	m.HandleFunc("POST /locations/{id}/default", a.authenticated(a.defaultLocation))
+	m.HandleFunc("POST /locations/{id}/delete", a.authenticated(a.deleteLocation))
 	m.HandleFunc("POST /calendars", a.authenticated(a.saveCalendarSettings))
 	m.HandleFunc("POST /blocks", a.authenticated(a.blockDay))
 	m.HandleFunc("POST /blocks/delete", a.authenticated(a.unblockDay))
@@ -189,6 +193,13 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, e = tx.ExecContext(r.Context(), "INSERT INTO meeting_types(user_id,slug,name,timezone) VALUES(?,'30min','30 minute meeting',?)", id, tz)
+	var meet int64
+	if e == nil {
+		e = tx.QueryRowContext(r.Context(), "INSERT INTO locations(user_id,kind,label) VALUES(?,'meet','Google Meet') RETURNING id", id).Scan(&meet)
+	}
+	if e == nil {
+		_, e = tx.ExecContext(r.Context(), "UPDATE users SET default_location=? WHERE id=?", meet, id)
+	}
 	if e == nil {
 		e = tx.Commit()
 	}
@@ -246,6 +257,11 @@ func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.MeetingTypes, e = a.meetingTypes(r.Context(), u.ID, false)
+	if e != nil {
+		a.internal(w, r, e)
+		return
+	}
+	p.Locations, e = a.locations(r.Context(), u)
 	if e != nil {
 		a.internal(w, r, e)
 		return
@@ -311,9 +327,8 @@ func validTimezone(tz string) bool {
 func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	name := strings.TrimSpace(r.PostForm.Get("name"))
-	location := strings.TrimSpace(r.PostForm.Get("location"))
-	if len(name) < 1 || len(name) > 100 || len(location) > 500 {
-		a.fail(w, r, 400, "Use a display name up to 100 characters and a location up to 500.")
+	if len(name) < 1 || len(name) > 100 {
+		a.fail(w, r, 400, "Use a display name up to 100 characters.")
 		return
 	}
 	enabled := r.PostForm.Get("enabled") == "on"
@@ -321,12 +336,49 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "Select a destination calendar before publishing.")
 		return
 	}
-	_, e := a.db.ExecContext(r.Context(), `UPDATE users SET name=?,location=?,enabled=? WHERE id=?`, name, location, enabled, u.ID)
+	_, e := a.db.ExecContext(r.Context(), `UPDATE users SET name=?,enabled=? WHERE id=?`, name, enabled, u.ID)
 	if e != nil {
 		a.internal(w, r, e)
 		return
 	}
 	http.Redirect(w, r, "/?notice=saved", 303)
+}
+func (a *App) addLocation(w http.ResponseWriter, r *http.Request) {
+	u := currentUser(r)
+	kind, label, detail := "custom", strings.TrimSpace(r.PostForm.Get("label")), strings.TrimSpace(r.PostForm.Get("detail"))
+	if r.PostForm.Get("kind") == "meet" {
+		kind, label, detail = "meet", "Google Meet", ""
+	} else if len(label) < 1 || len(label) > 60 || len(detail) > 500 {
+		a.fail(w, r, 400, "Give the location a name up to 60 characters, and a link or address up to 500.")
+		return
+	}
+	var id int64
+	e := a.db.QueryRowContext(r.Context(), "INSERT INTO locations(user_id,kind,label,detail) VALUES(?,?,?,?) RETURNING id", u.ID, kind, label, detail).Scan(&id)
+	if e == nil && !u.DefaultLocation.Valid {
+		_, e = a.db.ExecContext(r.Context(), "UPDATE users SET default_location=? WHERE id=?", id, u.ID)
+	}
+	if e != nil {
+		a.internal(w, r, e)
+		return
+	}
+	http.Redirect(w, r, "/?notice=saved#profile", 303)
+}
+func (a *App) defaultLocation(w http.ResponseWriter, r *http.Request) {
+	u := currentUser(r)
+	_, e := a.db.ExecContext(r.Context(), "UPDATE users SET default_location=? WHERE id=? AND EXISTS(SELECT 1 FROM locations WHERE id=? AND user_id=?)", r.PathValue("id"), u.ID, r.PathValue("id"), u.ID)
+	if e != nil {
+		a.internal(w, r, e)
+		return
+	}
+	http.Redirect(w, r, "/?notice=saved#profile", 303)
+}
+func (a *App) deleteLocation(w http.ResponseWriter, r *http.Request) {
+	_, e := a.db.ExecContext(r.Context(), "DELETE FROM locations WHERE id=? AND user_id=?", r.PathValue("id"), currentUser(r).ID)
+	if e != nil {
+		a.internal(w, r, e)
+		return
+	}
+	http.Redirect(w, r, "/?notice=saved#profile", 303)
 }
 
 // ownedMeetingType returns the zero MeetingType with no error for /types/new.
@@ -609,6 +661,10 @@ func (a *App) publicPage(w http.ResponseWriter, r *http.Request) {
 		if !found {
 			p.Error = "That time is no longer available. Please choose another."
 		}
+		if p.Locations, e = a.locations(r.Context(), u); e != nil {
+			a.internal(w, r, e)
+			return
+		}
 	}
 	a.render(w, r, "booking", p, 200)
 }
@@ -664,6 +720,11 @@ func (a *App) book(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "Enter your name and a valid email address.")
 		return
 	}
+	location, meet, e := a.chosenLocation(r, u)
+	if e != nil {
+		a.fail(w, r, 400, "Choose where to meet, or enter a location up to 500 characters.")
+		return
+	}
 	if existing, e := a.getBooking(r.Context(), token); e == nil {
 		http.Redirect(w, r, "/manage/"+existing.ManageToken, 303)
 		return
@@ -693,7 +754,7 @@ func (a *App) book(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 409, "That time is no longer available. Please choose another slot.")
 		return
 	}
-	b := Booking{ID: id, UserID: u.ID, CalendarID: u.WriteCalendar.Int64, GuestName: name, GuestEmail: email, Start: start, End: start + int64(t.Duration*60), BlockStart: start - int64(t.Buffer*60), BlockEnd: start + int64((t.Duration+t.Buffer)*60), Title: t.Name + ": " + name + " / " + u.Name, Location: u.Location, Timezone: t.Timezone, ManageToken: token, Status: "pending", Created: time.Now().Unix()}
+	b := Booking{ID: id, UserID: u.ID, CalendarID: u.WriteCalendar.Int64, GuestName: name, GuestEmail: email, Start: start, End: start + int64(t.Duration*60), BlockStart: start - int64(t.Buffer*60), BlockEnd: start + int64((t.Duration+t.Buffer)*60), Title: t.Name + ": " + name + " / " + u.Name, Location: location, Meet: meet, Timezone: t.Timezone, ManageToken: token, Status: "pending", Created: time.Now().Unix()}
 	if e = a.reserve(r.Context(), b); e != nil {
 		if existing, err := a.getBooking(r.Context(), token); err == nil {
 			http.Redirect(w, r, "/manage/"+existing.ManageToken, 303)
@@ -708,6 +769,29 @@ func (a *App) book(w http.ResponseWriter, r *http.Request) {
 	}
 	// Respond quickly. The durable worker confirms with Google and sends its invitation.
 	http.Redirect(w, r, "/manage/"+token, 303)
+}
+
+// chosenLocation resolves the guest's pick. Their own text wins over the selected option,
+// so typing a location works without script to deselect the preselected default.
+func (a *App) chosenLocation(r *http.Request, u User) (text string, meet bool, err error) {
+	text = strings.TrimSpace(r.PostForm.Get("custom_location"))
+	if len(text) > 500 {
+		return "", false, errors.New("custom location too long")
+	}
+	choice := r.PostForm.Get("location")
+	if text != "" || choice == "" {
+		return text, false, nil
+	}
+	var l Location
+	e := a.db.QueryRowContext(r.Context(), "SELECT kind,label,detail FROM locations WHERE id=? AND user_id=?", choice, u.ID).Scan(&l.Kind, &l.Label, &l.Detail)
+	if e != nil {
+		return "", false, fmt.Errorf("location %q: %w", choice, e)
+	}
+	if l.Kind == "meet" {
+		// The link does not exist until Google creates the event.
+		return "", true, nil
+	}
+	return l.Text(), false, nil
 }
 func (a *App) manage(w http.ResponseWriter, r *http.Request) {
 	b, e := a.getBooking(r.Context(), r.PathValue("token"))

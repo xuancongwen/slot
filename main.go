@@ -38,7 +38,7 @@ var assets embed.FS
 
 // Development builds do not migrate: bump this whenever schema.sql changes shape,
 // and an older database fails fast instead of running against missing columns.
-const schemaVersion = 2
+const schemaVersion = 3
 
 func checkSchemaVersion(db *sql.DB) error {
 	var version, tables int
@@ -164,6 +164,15 @@ func newApp(c Config) (*App, error) {
 			loc = time.UTC
 		}
 		return time.Unix(t, 0).In(loc).Format("Mon, Jan 2 · 15:04 MST")
+	}, "isLink": func(s string) bool {
+		return strings.HasPrefix(s, "https://") || strings.HasPrefix(s, "http://")
+	}, "hasMeet": func(ls []Location) bool {
+		for _, l := range ls {
+			if l.Kind == "meet" {
+				return true
+			}
+		}
+		return false
 	}, "utcOffset": func(tz string) string {
 		loc, e := time.LoadLocation(tz)
 		if e != nil {

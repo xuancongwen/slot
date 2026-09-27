@@ -53,12 +53,17 @@ func (a *App) syncBooking(ctx context.Context, id string) {
 	defer cancel()
 	c, e := a.bookingCalendar(ctx, b.CalendarID)
 	status := "confirmed"
+	location := b.Location
 	if e == nil {
 		if b.Status == "cancel_pending" {
 			status = "cancelled"
 			e = a.google.Delete(ctx, c, b)
 		} else {
-			e = a.google.Insert(ctx, c, b)
+			var meetLink string
+			meetLink, e = a.google.Insert(ctx, c, b)
+			if meetLink != "" {
+				location = meetLink
+			}
 		}
 	}
 	if e != nil {
@@ -67,7 +72,7 @@ func (a *App) syncBooking(ctx context.Context, id string) {
 		slog.Warn("calendar sync pending", "booking", id, "error", e, "database_error", dbErr)
 		return
 	}
-	if _, e = a.db.ExecContext(ctx, "UPDATE bookings SET status=?,last_error='',next_attempt=0 WHERE id=?", status, id); e != nil {
+	if _, e = a.db.ExecContext(ctx, "UPDATE bookings SET status=?,location=?,last_error='',next_attempt=0 WHERE id=?", status, location, id); e != nil {
 		slog.Error("persist calendar result", "booking", id, "error", e)
 	}
 }

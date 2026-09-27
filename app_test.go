@@ -33,12 +33,18 @@ func (f *fakeCalendar) Busy(context.Context, []Calendar, time.Time, time.Time) (
 	defer f.mu.Unlock()
 	return f.busy, f.busyErr
 }
-func (f *fakeCalendar) Insert(_ context.Context, _ Calendar, b Booking) error {
+
+const fakeMeetLink = "https://meet.google.com/abc-defg-hij"
+
+func (f *fakeCalendar) Insert(_ context.Context, _ Calendar, b Booking) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.insertCalls++
 	f.events[b.ID] = true
-	return f.insertErr
+	if b.Meet && f.insertErr == nil {
+		return fakeMeetLink, nil
+	}
+	return "", f.insertErr
 }
 func (f *fakeCalendar) Delete(_ context.Context, _ Calendar, b Booking) error {
 	f.mu.Lock()
@@ -72,6 +78,12 @@ func seedHost(t *testing.T, a *App, slug string) User {
 	if _, e = a.db.Exec(`INSERT INTO meeting_types(user_id,slug,name,days,notice) VALUES(?,'chat','Chat','0123456',0)`, uid); e != nil {
 		t.Fatal(e)
 	}
+	if _, e = a.db.Exec(`INSERT INTO locations(user_id,kind,label,detail) VALUES(?,'meet','Google Meet',''),(?,'custom','Zoom','https://zoom.us/j/1')`, uid, uid); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = a.db.Exec(`UPDATE users SET default_location=(SELECT min(id) FROM locations WHERE user_id=?) WHERE id=?`, uid, uid); e != nil {
+		t.Fatal(e)
+	}
 	r, e = a.db.Exec("INSERT INTO accounts(user_id,identity,token) VALUES(?,?,?)", uid, slug+"@example.com", a.seal([]byte(`{"access_token":"test"}`)))
 	if e != nil {
 		t.Fatal(e)
@@ -98,6 +110,14 @@ func chatType(t *testing.T, a *App, u User) MeetingType {
 		t.Fatal(e)
 	}
 	return mt
+}
+func locationID(t *testing.T, a *App, u User, label string) string {
+	t.Helper()
+	var id int64
+	if e := a.db.QueryRow("SELECT id FROM locations WHERE user_id=? AND label=?", u.ID, label).Scan(&id); e != nil {
+		t.Fatal(e)
+	}
+	return fmt.Sprint(id)
 }
 func bookingFor(u User, start time.Time) Booking {
 	return Booking{ID: randomHex(16), UserID: u.ID, CalendarID: u.WriteCalendar.Int64, GuestName: "Guest", GuestEmail: "guest@example.com", Start: start.Unix(), End: start.Add(30 * time.Minute).Unix(), BlockStart: start.Unix(), BlockEnd: start.Add(30 * time.Minute).Unix(), Title: "Guest / Alex", Timezone: "UTC", ManageToken: randomHex(32), Created: time.Now().Unix()}
@@ -266,7 +286,7 @@ func TestPublicBookingFlow(t *testing.T) {
 		t.Fatalf("page: %d %s", w.Code, w.Body)
 	}
 	ticket := a.ticket(u.ID, mt, day.Unix())
-	form := url.Values{"ticket": {ticket}, "name": {"Guest <script>alert(1)</script>"}, "email": {"guest@example.com"}}
+	form := url.Values{"ticket": {ticket}, "name": {"Guest <script>alert(1)</script>"}, "email": {"guest@example.com"}, "location": {locationID(t, a, u, "Google Meet")}}
 	w = formRequest(h, "/b/alex/chat", form, false)
 	if w.Code != 303 {
 		t.Fatalf("book: %d %s", w.Code, w.Body)
@@ -284,7 +304,7 @@ func TestPublicBookingFlow(t *testing.T) {
 	}
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest("GET", manage, nil))
-	if w.Code != 200 || !strings.Contains(w.Body.String(), "Download calendar event") {
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Download calendar event") || !strings.Contains(w.Body.String(), fakeMeetLink) {
 		t.Fatalf("manage: %d %s", w.Code, w.Body)
 	}
 	if strings.Contains(w.Body.String(), "Guest <script>") {
@@ -395,6 +415,11 @@ func TestRegisterLoginPassword(t *testing.T) {
 	a.db.QueryRow("SELECT m.timezone FROM meeting_types m JOIN users u ON u.id=m.user_id WHERE u.email='new@example.com'").Scan(&starterZone)
 	if starterZone != "Asia/Singapore" {
 		t.Fatalf("starter meeting type timezone = %q", starterZone)
+	}
+	var defaultKind string
+	a.db.QueryRow("SELECT l.kind FROM users u JOIN locations l ON l.id=u.default_location WHERE u.email='new@example.com'").Scan(&defaultKind)
+	if defaultKind != "meet" {
+		t.Fatalf("default location kind = %q, want meet", defaultKind)
 	}
 	var c *http.Cookie
 	for _, cookie := range w.Result().Cookies() {
@@ -514,7 +539,7 @@ func TestGoogleInsertConflictAndDelete(t *testing.T) {
 	}))
 	defer s.Close()
 	g := &Google{app: a, baseURL: s.URL}
-	if e := g.Insert(context.Background(), c, b); e != nil {
+	if _, e := g.Insert(context.Background(), c, b); e != nil {
 		t.Fatal(e)
 	}
 	if e := g.Delete(context.Background(), c, b); e != nil {
@@ -522,6 +547,86 @@ func TestGoogleInsertConflictAndDelete(t *testing.T) {
 	}
 	if posts != 1 {
 		t.Fatal(posts)
+	}
+}
+func TestGoogleInsertRequestsMeet(t *testing.T) {
+	a, _ := testApp(t)
+	u := seedHost(t, a, "alex")
+	c, _ := a.bookingCalendar(context.Background(), u.WriteCalendar.Int64)
+	b := bookingFor(u, tomorrow())
+	b.Meet = true
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			ConferenceData struct {
+				CreateRequest struct {
+					RequestID             string
+					ConferenceSolutionKey struct{ Type string }
+				}
+			}
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		req := body.ConferenceData.CreateRequest
+		if r.URL.Query().Get("conferenceDataVersion") != "1" || req.RequestID != b.ID || req.ConferenceSolutionKey.Type != "hangoutsMeet" {
+			t.Errorf("Meet not requested: %s %+v", r.URL.RawQuery, req)
+		}
+		json.NewEncoder(w).Encode(map[string]string{"hangoutLink": fakeMeetLink})
+	}))
+	defer s.Close()
+	g := &Google{app: a, baseURL: s.URL}
+	link, e := g.Insert(context.Background(), c, b)
+	if e != nil || link != fakeMeetLink {
+		t.Fatalf("link %q, error %v", link, e)
+	}
+}
+func TestGuestLocationChoice(t *testing.T) {
+	a, _ := testApp(t)
+	u := seedHost(t, a, "alex")
+	theirs := seedHost(t, a, "two")
+	for _, tc := range []struct {
+		name, choice, custom, want string
+		meet, fails                bool
+	}{
+		{name: "Google Meet", choice: locationID(t, a, u, "Google Meet"), meet: true},
+		{name: "host link", choice: locationID(t, a, u, "Zoom"), want: "https://zoom.us/j/1"},
+		{name: "guest's own text wins", choice: locationID(t, a, u, "Zoom"), custom: " Call me at 555-0100 ", want: "Call me at 555-0100"},
+		{name: "nothing chosen"},
+		{name: "another host's location", choice: locationID(t, a, theirs, "Zoom"), fails: true},
+		{name: "too long", custom: strings.Repeat("x", 501), fails: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest("POST", "/", nil)
+			r.PostForm = url.Values{"location": {tc.choice}, "custom_location": {tc.custom}}
+			text, meet, e := a.chosenLocation(r, u)
+			if (e != nil) != tc.fails || text != tc.want || meet != tc.meet {
+				t.Fatalf("got %q meet=%v err=%v", text, meet, e)
+			}
+		})
+	}
+}
+func TestLocationEditingIsolation(t *testing.T) {
+	a, _ := testApp(t)
+	u := seedHost(t, a, "one")
+	v := seedHost(t, a, "two")
+	cookie := sessionFor(t, a, u)
+	h := a.adminHandler()
+	theirs := locationID(t, a, v, "Zoom")
+	formRequest(h, "/locations/"+theirs+"/delete", url.Values{}, true, cookie)
+	formRequest(h, "/locations/"+theirs+"/default", url.Values{}, true, cookie)
+	var n int
+	a.db.QueryRow("SELECT count(*) FROM locations WHERE id=?", theirs).Scan(&n)
+	if n != 1 {
+		t.Fatal("deleted another host's location")
+	}
+	if got, _ := a.userByID(context.Background(), u.ID); got.DefaultLocation != u.DefaultLocation {
+		t.Fatalf("default changed to %v", got.DefaultLocation)
+	}
+	if w := formRequest(h, "/locations", url.Values{"label": {"Office"}, "detail": {"1 Main St"}}, true, cookie); w.Code != 303 {
+		t.Fatalf("add: %d", w.Code)
+	}
+	office := locationID(t, a, u, "Office")
+	formRequest(h, "/locations/"+office+"/default", url.Values{}, true, cookie)
+	if got, _ := a.userByID(context.Background(), u.ID); fmt.Sprint(got.DefaultLocation.Int64) != office {
+		t.Fatal("default not changed")
 	}
 }
 func TestTokenRefreshEncryptedAndPersistent(t *testing.T) {

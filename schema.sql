@@ -4,9 +4,17 @@ PRAGMA busy_timeout=5000;
 
 CREATE TABLE IF NOT EXISTS users (
  id INTEGER PRIMARY KEY, email TEXT NOT NULL UNIQUE, password TEXT NOT NULL,
- name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, location TEXT NOT NULL DEFAULT '',
+ name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE,
  enabled INTEGER NOT NULL DEFAULT 0, write_calendar INTEGER,
+ default_location INTEGER REFERENCES locations(id) ON DELETE SET NULL,
  created INTEGER NOT NULL
+);
+-- Where a host is willing to meet. Guests pick one or supply their own.
+-- A 'meet' location has no detail: Google creates a fresh Meet link per booking.
+CREATE TABLE IF NOT EXISTS locations (
+ id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ kind TEXT NOT NULL CHECK(kind IN ('meet','custom')),
+ label TEXT NOT NULL, detail TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS meeting_types (
  id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -43,7 +51,7 @@ CREATE TABLE IF NOT EXISTS bookings (
  calendar_id INTEGER NOT NULL REFERENCES calendars(id),
  guest_name TEXT NOT NULL, guest_email TEXT NOT NULL,
  start INTEGER NOT NULL, end INTEGER NOT NULL, block_start INTEGER NOT NULL, block_end INTEGER NOT NULL,
- title TEXT NOT NULL, location TEXT NOT NULL, timezone TEXT NOT NULL,
+ title TEXT NOT NULL, location TEXT NOT NULL, meet INTEGER NOT NULL DEFAULT 0, timezone TEXT NOT NULL,
  manage_token TEXT NOT NULL UNIQUE,
  status TEXT NOT NULL CHECK(status IN ('pending','confirmed','cancel_pending','cancelled','failed')),
  created INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,

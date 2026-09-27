@@ -19,7 +19,8 @@ import (
 
 type CalendarProvider interface {
 	Busy(context.Context, []Calendar, time.Time, time.Time) ([]Span, error)
-	Insert(context.Context, Calendar, Booking) error
+	// Insert returns the Google Meet link when the booking asked for one.
+	Insert(context.Context, Calendar, Booking) (string, error)
 	Delete(context.Context, Calendar, Booking) error
 }
 type Google struct {
@@ -201,33 +202,41 @@ func (g *Google) busyAccount(ctx context.Context, account int64, cs []Calendar, 
 	}
 	return all, nil
 }
-func (g *Google) Insert(ctx context.Context, c Calendar, b Booking) error {
+func (g *Google) Insert(ctx context.Context, c Calendar, b Booking) (string, error) {
 	token, e := g.token(ctx, c.AccountID)
 	if e != nil {
-		return e
+		return "", e
 	}
 	path := "/calendars/" + url.PathEscape(c.GoogleID) + "/events"
 	// Caller-supplied Google event IDs make retries safe after a timeout or process restart.
 	body := map[string]any{"id": b.ID, "summary": b.Title, "location": b.Location, "description": "Booked with Slot. Manage or cancel: " + g.app.cfg.PublicURL + "/manage/" + b.ManageToken, "start": map[string]string{"dateTime": time.Unix(b.Start, 0).UTC().Format(time.RFC3339), "timeZone": b.Timezone}, "end": map[string]string{"dateTime": time.Unix(b.End, 0).UTC().Format(time.RFC3339), "timeZone": b.Timezone}, "attendees": []map[string]string{{"email": b.GuestEmail, "displayName": b.GuestName}}, "extendedProperties": map[string]any{"private": map[string]string{"slotBooking": b.ID}}, "guestsCanModify": false}
-	e = g.request(ctx, token, "POST", path+"?sendUpdates=all", body, nil)
+	query := "?sendUpdates=all"
+	if b.Meet {
+		// Reusing the booking ID as the request ID keeps a retried insert to one Meet.
+		body["conferenceData"] = map[string]any{"createRequest": map[string]any{"requestId": b.ID, "conferenceSolutionKey": map[string]string{"type": "hangoutsMeet"}}}
+		query += "&conferenceDataVersion=1"
+	}
+	var created struct{ HangoutLink string }
+	e = g.request(ctx, token, "POST", path+query, body, &created)
 	var api *APIError
 	if errors.As(e, &api) && api.Status == 409 {
 		var event struct {
 			Status             string
+			HangoutLink        string
 			ExtendedProperties struct{ Private map[string]string }
 		}
 		if err := g.request(ctx, token, "GET", path+"/"+b.ID, nil, &event); err != nil {
-			return err
+			return "", err
 		}
 		if event.Status == "cancelled" {
-			return errors.New("Google event was cancelled externally; cancel this booking in Slot")
+			return "", errors.New("Google event was cancelled externally; cancel this booking in Slot")
 		}
 		if event.ExtendedProperties.Private["slotBooking"] != b.ID {
-			return errors.New("Google event ID conflict")
+			return "", errors.New("Google event ID conflict")
 		}
-		return nil
+		return event.HangoutLink, nil
 	}
-	return e
+	return created.HangoutLink, e
 }
 func (g *Google) Delete(ctx context.Context, c Calendar, b Booking) error {
 	token, e := g.token(ctx, c.AccountID)

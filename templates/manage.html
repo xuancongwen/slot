@@ -20,7 +20,7 @@
     <div class="selected-time">
       <strong>{{dateTime .Booking.Start .Booking.Timezone}}</strong>
       <span>Until {{dateTime .Booking.End .Booking.Timezone}}</span>
-      {{if .Booking.Location}}<span>{{.Booking.Location}}</span>{{end}}
+      {{if isLink .Booking.Location}}<a href="{{.Booking.Location}}" rel="noopener">{{.Booking.Location}}</a>{{else if .Booking.Location}}<span>{{.Booking.Location}}</span>{{else if .Booking.Meet}}<span>Google Meet link on its way with the invitation</span>{{end}}
     </div>
     <p class="hint">{{.Booking.GuestName}} · {{.Booking.GuestEmail}}</p>
 
