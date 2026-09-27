@@ -1,0 +1,37 @@
+{{define "auth"}}{{template "head" .}}
+<main class="narrow">
+  <section class="card auth-card">
+    <h1>{{.Title}}</h1>
+    {{template "messages" .}}
+    <form method="post" action="{{if .Register}}/register{{else}}/login{{end}}">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      {{if .Register}}
+      <label>Your name
+        <input name="name" autocomplete="name" maxlength="100" required placeholder="Alex Morgan">
+      </label>
+      <label>Booking URL name
+        <input name="slug" pattern="[a-z0-9][a-z0-9-]{0,39}" maxlength="40" required placeholder="alex">
+        <span class="hint">Your public link will end in /b/your-name.</span>
+      </label>
+      {{end}}
+      <label>Email
+        <input type="email" name="email" autocomplete="username" maxlength="254" required placeholder="you@example.com">
+      </label>
+      <label>Password
+        <input type="password" name="password" autocomplete="{{if .Register}}new-password{{else}}current-password{{end}}" {{if .Register}}minlength="12"{{end}} maxlength="256" required>
+        {{if .Register}}<span class="hint">At least 12 characters.</span>{{end}}
+      </label>
+      {{if .Register}}
+      <label>Registration code <span class="optional">if provided by your server owner</span>
+        <input name="code" autocomplete="off">
+      </label>
+      {{end}}
+      <button class="full" type="submit">{{if .Register}}Create account{{else}}Sign in{{end}}</button>
+    </form>
+    <p class="auth-switch">
+      {{if .Register}}Already have an account? <a href="/login">Sign in</a>
+      {{else if .RegistrationOpen}}New here? <a href="/register">Create an account</a>{{end}}
+    </p>
+  </section>
+</main>
+{{template "foot" .}}{{end}}

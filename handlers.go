@@ -81,7 +81,7 @@ func (a *App) publicHandler() http.Handler {
 	m := http.NewServeMux()
 	a.commonRoutes(m)
 	m.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		a.render(w, r, "home", Page{Title: "A little space to meet"}, 200)
+		a.render(w, r, "home", Page{Title: "Home"}, 200)
 	})
 	m.HandleFunc("GET /b/{slug}", a.publicPage)
 	m.HandleFunc("POST /b/{slug}", a.book)
@@ -121,9 +121,9 @@ func (a *App) authPage(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 403, "Registration is closed on this server.")
 		return
 	}
-	title := "Welcome back"
+	title := "Sign in"
 	if reg {
-		title = "Make time for good conversations"
+		title = "Create account"
 	}
 	a.render(w, r, "auth", Page{Title: title, Admin: true, Register: reg, RegistrationOpen: a.cfg.RegistrationOpen}, 200)
 }
@@ -194,7 +194,7 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 	}
 	match := passwordMatches(hash, password)
 	if e != nil || !match {
-		a.render(w, r, "auth", Page{Title: "Welcome back", Admin: true, RegistrationOpen: a.cfg.RegistrationOpen, Error: "Email or password is incorrect."}, 401)
+		a.render(w, r, "auth", Page{Title: "Sign in", Admin: true, RegistrationOpen: a.cfg.RegistrationOpen, Error: "Email or password is incorrect."}, 401)
 		return
 	}
 	if e = a.loginSession(w, r, u.ID); e != nil {
@@ -214,7 +214,7 @@ func (a *App) logout(w http.ResponseWriter, r *http.Request) {
 }
 func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
-	p := Page{Title: "Your time, on your terms", Admin: true, User: u, Days: days, GoogleConfigured: a.cfg.GoogleClientID != "", BookingURL: a.cfg.PublicURL + "/b/" + u.Slug}
+	p := Page{Title: "Dashboard", Admin: true, User: u, Days: days, GoogleConfigured: a.cfg.GoogleClientID != "", BookingURL: a.cfg.PublicURL + "/b/" + u.Slug}
 	var e error
 	p.Calendars, e = a.calendars(r.Context(), u.ID)
 	if e != nil {

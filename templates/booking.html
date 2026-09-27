@@ -1,0 +1,64 @@
+{{define "booking"}}{{template "head" .}}
+<main class="public-layout">
+  <section class="host-intro">
+    <h1>Meet with<br>{{.User.Name}}</h1>
+    <div class="meeting-detail">
+      <span>◷</span>
+      <div><strong>{{.User.Duration}} minutes</strong><small>Duration</small></div>
+    </div>
+    {{if .User.Location}}
+    <div class="meeting-detail">
+      <span>↗</span>
+      <div><strong>{{.User.Location}}</strong><small>Meeting location</small></div>
+    </div>
+    {{end}}
+    <div class="meeting-detail">
+      <span>◎</span>
+      <div><strong>{{.User.Timezone}}</strong><small>All times shown in the host’s timezone.</small></div>
+    </div>
+  </section>
+
+  <section class="card booking-card">
+    {{template "messages" .}}
+    {{if .Start}}
+    <a class="back-link" href="{{.BookingURL}}?date={{.Date}}">← Pick a different time</a>
+    <h2>Your details</h2>
+    <div class="selected-time">
+      <strong>{{.Date}}</strong>
+      <span>{{.SlotLabel}} · {{.User.Duration}} min</span>
+    </div>
+    <form method="post" action="{{.BookingURL}}">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <input type="hidden" name="ticket" value="{{.Ticket}}">
+      <label>Your name
+        <input name="name" autocomplete="name" maxlength="100" required placeholder="Alex Morgan">
+      </label>
+      <label>Email address
+        <input name="email" type="email" autocomplete="email" maxlength="254" required placeholder="you@example.com">
+      </label>
+      <div class="honeypot" aria-hidden="true">
+        <label>Leave this empty<input name="website" tabindex="-1" autocomplete="off"></label>
+      </div>
+      <button class="full">Book this time</button>
+      <p class="hint">Your host will receive your name and email. Google will send a calendar invitation once the booking is confirmed.</p>
+    </form>
+    {{else}}
+    <h2>Choose a day & time</h2>
+    <form method="get" class="date-form">
+      <label>Date in {{.User.Timezone}}
+        <input type="date" name="date" value="{{.Date}}" min="{{.MinDate}}" max="{{.MaxDate}}" required>
+      </label>
+      <button class="secondary">Show times</button>
+    </form>
+    <div class="slots">
+      {{range .Slots}}
+      <a class="slot" href="{{$.BookingURL}}?date={{$.Date}}&amp;start={{.Start}}">{{.Label}}<span>↗</span></a>
+      {{else}}{{if not .Error}}
+      <div class="empty"><p>No open times on this date. Try another day.</p></div>
+      {{end}}{{end}}
+    </div>
+    <p class="hint">Availability is checked again when you book.</p>
+    {{end}}
+  </section>
+</main>
+{{template "foot" .}}{{end}}

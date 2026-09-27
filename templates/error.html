@@ -1,0 +1,8 @@
+{{define "error"}}{{template "head" .}}
+<main class="narrow">
+  <h1>{{.Title}}</h1>
+  {{template "messages" .}}
+  <p>Go back to the previous page and try again.</p>
+  <a class="button secondary" href="/">Home</a>
+</main>
+{{template "foot" .}}{{end}}

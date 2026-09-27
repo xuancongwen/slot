@@ -272,7 +272,7 @@ func TestPublicBookingFlow(t *testing.T) {
 	}
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest("GET", manage, nil))
-	if w.Code != 200 || !strings.Contains(w.Body.String(), "You’re on") {
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Download calendar event") {
 		t.Fatalf("manage: %d %s", w.Code, w.Body)
 	}
 	if strings.Contains(w.Body.String(), "Guest <script>") {
