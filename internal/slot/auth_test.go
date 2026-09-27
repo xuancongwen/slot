@@ -52,3 +52,38 @@ func TestRegisterLoginPassword(t *testing.T) {
 		t.Fatal("password storage")
 	}
 }
+
+func TestSingleHostRegistersOnce(t *testing.T) {
+	a, _ := testApp(t)
+	a.cfg.SingleHost = "sam"
+	a.cfg.RegistrationCode = "let-me-in"
+	h := a.adminHandler()
+	form := func(slug, email, code string) url.Values {
+		return url.Values{"name": {"Sam"}, "slug": {slug}, "email": {email}, "password": {"a long test password"}, "code": {code}}
+	}
+	if body := getRequest(h, "/register").Body.String(); !strings.Contains(body, `value="sam" readonly`) {
+		t.Fatal("registration form should fix the URL name to SINGLE_HOST")
+	}
+	for _, tc := range []struct {
+		name string
+		form url.Values
+		want int
+	}{
+		{"wrong code", form("sam", "sam@example.com", "nope"), 403},
+		{"another URL name", form("alex", "sam@example.com", "let-me-in"), 400},
+		{"the single host", form("sam", "sam@example.com", "let-me-in"), 303},
+		{"a second account", form("sam", "two@example.com", "let-me-in"), 403},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if w := formRequest(h, "/register", tc.form, true); w.Code != tc.want {
+				t.Fatalf("status %d, want %d: %s", w.Code, tc.want, w.Body)
+			}
+		})
+	}
+	if w := getRequest(h, "/register"); w.Code != 403 {
+		t.Fatalf("registration page still open: %d", w.Code)
+	}
+	if body := getRequest(h, "/login").Body.String(); strings.Contains(body, "Create an account") {
+		t.Fatal("sign-in page still offers registration")
+	}
+}

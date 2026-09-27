@@ -12,6 +12,7 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       REGISTRATION_OPEN: ${REGISTRATION_OPEN:-true}
       REGISTRATION_CODE: ${REGISTRATION_CODE:-}
+      SINGLE_HOST: ${SINGLE_HOST:-}
     volumes:
       - slot-data:/data
     read_only: true

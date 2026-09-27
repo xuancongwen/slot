@@ -11,7 +11,7 @@
       <span>◎</span>
       <div><strong>{{.GuestTimezone}}</strong><small>Times shown in this timezone, currently {{utcOffset .GuestTimezone}}.</small></div>
     </div>
-    <form method="get" action="{{.BookingURL}}" class="inline-form timezone-form">
+    <form method="get" action="{{.ViewURL}}" class="inline-form timezone-form">
       <input type="hidden" name="month" value="{{.Month}}">
       {{if .Date}}<input type="hidden" name="date" value="{{.Date}}">{{end}}
       <label class="grow">Change timezone
@@ -25,7 +25,7 @@
   <section class="card booking-card">
     {{template "messages" .}}
     {{if .Start}}
-    <a class="back-link" href="{{.BookingURL}}?tz={{.GuestTimezone}}&amp;month={{.Month}}&amp;date={{.Date}}">← Pick a different time</a>
+    <a class="back-link" href="{{.ViewURL}}?tz={{.GuestTimezone}}&amp;month={{.Month}}&amp;date={{.Date}}">← Pick a different time</a>
     <h2>Your details</h2>
     <div class="selected-time">
       <strong>{{.SelectedLabel}}</strong>
@@ -61,16 +61,16 @@
     <div class="scheduler{{if .Date}} with-times{{end}}">
       <div>
         <div class="month-nav">
-          {{if .PrevMonth}}<a href="{{.BookingURL}}?tz={{.GuestTimezone}}&amp;month={{.PrevMonth}}" aria-label="Previous month">‹</a>{{else}}<span aria-hidden="true">‹</span>{{end}}
+          {{if .PrevMonth}}<a href="{{.ViewURL}}?tz={{.GuestTimezone}}&amp;month={{.PrevMonth}}" aria-label="Previous month">‹</a>{{else}}<span aria-hidden="true">‹</span>{{end}}
           <strong>{{.MonthLabel}}</strong>
-          {{if .NextMonth}}<a href="{{.BookingURL}}?tz={{.GuestTimezone}}&amp;month={{.NextMonth}}" aria-label="Next month">›</a>{{else}}<span aria-hidden="true">›</span>{{end}}
+          {{if .NextMonth}}<a href="{{.ViewURL}}?tz={{.GuestTimezone}}&amp;month={{.NextMonth}}" aria-label="Next month">›</a>{{else}}<span aria-hidden="true">›</span>{{end}}
         </div>
         <table class="month">
           <thead>
             <tr><th>Sun</th><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th></tr>
           </thead>
           <tbody>
-            {{range .Weeks}}<tr>{{range .}}<td>{{if .InMonth}}{{if .Open}}<a class="day open{{if .Selected}} selected{{end}}" href="{{$.BookingURL}}?tz={{$.GuestTimezone}}&amp;month={{$.Month}}&amp;date={{.Date}}"{{if .Selected}} aria-current="date"{{end}}>{{.Day}}</a>{{else}}<span class="day">{{.Day}}</span>{{end}}{{end}}</td>{{end}}</tr>
+            {{range .Weeks}}<tr>{{range .}}<td>{{if .InMonth}}{{if .Open}}<a class="day open{{if .Selected}} selected{{end}}" href="{{$.ViewURL}}?tz={{$.GuestTimezone}}&amp;month={{$.Month}}&amp;date={{.Date}}"{{if .Selected}} aria-current="date"{{end}}>{{.Day}}</a>{{else}}<span class="day">{{.Day}}</span>{{end}}{{end}}</td>{{end}}</tr>
             {{end}}
           </tbody>
         </table>
@@ -80,7 +80,7 @@
         <strong>{{.SelectedLabel}}</strong>
         <div class="slots">
           {{range .Slots}}
-          <a class="slot" href="{{$.BookingURL}}?tz={{$.GuestTimezone}}&amp;month={{$.Month}}&amp;date={{$.Date}}&amp;start={{.Start}}">{{.Label}}<span>→</span></a>
+          <a class="slot" href="{{$.ViewURL}}?tz={{$.GuestTimezone}}&amp;month={{$.Month}}&amp;date={{$.Date}}&amp;start={{.Start}}">{{.Label}}<span>→</span></a>
           {{else}}
           <p class="hint">No open times on this date.</p>
           {{end}}
