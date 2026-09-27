@@ -56,7 +56,10 @@ func (a *App) csrfToken(w http.ResponseWriter, r *http.Request, admin bool) stri
 func (a *App) middleware(h http.Handler, admin bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Referrer-Policy", "no-referrer")
+		// Not no-referrer: that makes browsers send "Origin: null" on same-origin form
+		// POSTs, which the origin check below rejects. same-origin still leaks nothing
+		// (such as manage tokens in URLs) to other sites.
+		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; img-src 'self'; script-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 		if admin {
