@@ -108,23 +108,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   line-height: 32px;
 }
 
-.brand-note {
-  font-size: 9px;
-  letter-spacing: 1.7px;
-  font-weight: 600;
-  margin-left: 18px;
-  padding-left: 20px;
-  border-left: 1px solid #c7cec2;
-  color: var(--muted);
-}
-
-.port-badge {
-  font-size: 9px;
-  letter-spacing: 1.7px;
-  color: var(--muted);
-}
-
-h1, h2, h3, p {
+h1, h2, p {
   margin-top: 0;
 }
 
@@ -143,12 +127,6 @@ h2 {
   letter-spacing: -.7px;
   margin: 9px 0 24px;
   font-weight: 600;
-}
-
-h3 {
-  font-weight: 500;
-  font-size: 18px;
-  letter-spacing: -.4px;
 }
 
 .eyebrow {
@@ -203,12 +181,6 @@ h3 {
   text-decoration: none;
   margin-top: 7px;
   overflow-wrap: anywhere;
-}
-
-.link-banner p {
-  font-size: 13px;
-  color: var(--green);
-  margin: 0;
 }
 
 .status {
@@ -436,13 +408,6 @@ legend {
   margin-bottom: 0;
 }
 
-.empty-mark {
-  display: inline-block;
-  color: #738a58;
-  font-size: 30px;
-  margin-bottom: 12px;
-}
-
 .compact {
   padding: 22px 4px;
 }
@@ -499,38 +464,12 @@ td .sync-error {
   gap: 14px;
 }
 
-.auth-layout {
-  display: grid;
-  grid-template-columns: 1fr 430px;
-  max-width: 1100px;
-  margin: 65px auto;
-  gap: 85px;
-  padding: 0 40px;
-  align-items: start;
-}
-
-.auth-intro {
-  padding-top: 30px;
-}
-
-.auth-intro h1 {
-  font-size: 60px;
-}
-
-.auth-intro p {
-  font-size: 16px;
-}
-
-.small-note {
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 60px;
-  border-top: 1px solid var(--line);
-  padding-top: 18px;
-}
-
 .auth-card {
   padding: 34px;
+}
+
+.auth-card h1 {
+  font-size: 44px;
 }
 
 .auth-switch {
@@ -551,21 +490,6 @@ td .sync-error {
 .host-intro h1 {
   font-size: 56px;
   overflow-wrap: anywhere;
-}
-
-.avatar {
-  height: 58px;
-  width: 58px;
-  border-radius: 50%;
-  background: var(--accent);
-  margin: 27px 0 20px;
-  font-size: 30px;
-  text-align: center;
-  line-height: 58px;
-}
-
-.host-intro>p {
-  margin-bottom: 35px;
 }
 
 .meeting-detail {
@@ -722,10 +646,8 @@ td .sync-error {
 
 .landing {
   max-width: 1150px;
-  min-height: 580px;
   margin: 65px auto;
   padding: 0 45px;
-  position: relative;
 }
 
 .landing h1 {
@@ -735,33 +657,6 @@ td .sync-error {
 
 .landing p {
   line-height: 1.9;
-}
-
-.decorative {
-  position: absolute;
-  right: 45px;
-  top: 15px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  background: var(--accent);
-  width: 340px;
-  height: 410px;
-  border-radius: 130px 130px 10px 10px;
-  padding: 65px 35px 35px;
-}
-
-.decorative span {
-  font-size: 9px;
-  letter-spacing: 1.7px;
-}
-
-.decorative b {
-  font-family: Georgia,serif;
-  font-size: 43px;
-  font-weight: 400;
-  line-height: 1.05;
-  letter-spacing: -2px;
 }
 
 footer {
@@ -781,22 +676,11 @@ footer {
   .dashboard-grid {
     grid-template-columns: 1fr;
   }
-  .auth-layout {
-    gap: 35px;
-    grid-template-columns: 1fr 1fr;
-  }
-  .auth-intro h1 {
-    font-size: 43px;
-  }
   .public-layout {
     gap: 30px;
   }
   .host-intro h1 {
     font-size: 44px;
-  }
-  .decorative {
-    width: 260px;
-    height: 350px;
   }
   .landing h1 {
     font-size: 65px;
@@ -806,13 +690,6 @@ footer {
 @media(max-width:640px) {
   .topbar {
     padding: 20px;
-  }
-  .brand-note {
-    display: none;
-  }
-  .port-badge {
-    font-size: 8px;
-    letter-spacing: 1px;
   }
   .workspace {
     padding: 28px 18px;
@@ -826,9 +703,6 @@ footer {
   .link-banner a {
     font-size: 15px;
   }
-  .link-banner p {
-    display: none;
-  }
   .section-nav {
     gap: 20px;
     font-size: 12px;
@@ -836,20 +710,11 @@ footer {
   .card {
     padding: 23px;
   }
-  .auth-layout, .public-layout {
+  .public-layout {
     grid-template-columns: 1fr;
     margin: 30px auto;
     gap: 25px;
     padding: 0 20px;
-  }
-  .auth-intro {
-    padding-top: 0;
-  }
-  .auth-intro h1 {
-    font-size: 43px;
-  }
-  .small-note {
-    display: none;
   }
   .auth-card {
     margin: 0;
@@ -859,12 +724,6 @@ footer {
   }
   .host-intro h1 {
     font-size: 43px;
-  }
-  .avatar {
-    margin: 17px 0;
-  }
-  .host-intro>p {
-    margin-bottom: 20px;
   }
   .meeting-detail {
     margin: 13px 0;
@@ -891,17 +750,6 @@ footer {
   }
   .landing h1 {
     font-size: 64px;
-  }
-  .decorative {
-    position: static;
-    margin-top: 35px;
-    width: 100%;
-    height: 230px;
-    border-radius: 10px;
-    padding: 25px;
-  }
-  .decorative b {
-    font-size: 36px;
   }
   footer {
     padding: 22px 20px;

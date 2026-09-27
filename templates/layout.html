@@ -1,0 +1,28 @@
+{{define "head"}}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{{.Title}} · Slot</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Slot home"><span class="brand-icon">s.</span>slot</a>
+  </header>
+{{end}}
+
+{{define "foot"}}
+  <footer>
+    <span>Calendar Bookings Should be Free</span>
+  </footer>
+</body>
+</html>
+{{end}}
+
+{{define "messages"}}
+  {{if .Error}}<div class="alert error" role="alert">{{.Error}}</div>{{end}}
+  {{if .Notice}}<div class="alert" role="status">{{.Notice}}</div>{{end}}
+{{end}}

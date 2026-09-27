@@ -1,0 +1,203 @@
+{{define "dashboard"}}{{template "head" .}}
+<main class="workspace">
+  <div class="page-heading">
+    <h1>{{.User.Name}}</h1>
+    <form method="post" action="/logout">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button class="secondary small">Sign out</button>
+    </form>
+  </div>
+  {{template "messages" .}}
+
+  <section class="link-banner">
+    <div>
+      <span class="status {{if .User.Enabled}}live{{end}}">{{if .User.Enabled}}● BOOKING PAGE LIVE{{else}}○ BOOKING PAGE PAUSED{{end}}</span>
+      <a href="{{.BookingURL}}" target="_blank" rel="noopener">{{.BookingURL}} ↗</a>
+    </div>
+  </section>
+
+  <nav class="section-nav" aria-label="Workspace sections">
+    <a href="#availability">Availability</a>
+    <a href="#calendars">Calendars</a>
+    <a href="#bookings">Bookings</a>
+    <a href="#account">Account</a>
+  </nav>
+
+  <div class="dashboard-grid">
+    <section class="card" id="availability">
+      <h2>Availability</h2>
+      <form method="post" action="/settings">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <div class="form-grid">
+          <label>Display name
+            <input name="name" value="{{.User.Name}}" maxlength="100" required>
+          </label>
+          <label>Timezone
+            <input name="timezone" value="{{.User.Timezone}}" placeholder="America/Los_Angeles" required>
+            <span class="hint">An IANA timezone, e.g. America/Los_Angeles.</span>
+          </label>
+        </div>
+        <fieldset>
+          <legend>Available days</legend>
+          <div class="day-options">
+            {{range .Days}}<label><input type="checkbox" name="days" value="{{.Number}}" {{if hasDay $.User.Days .Number}}checked{{end}}><span>{{.Name}}</span></label>{{end}}
+          </div>
+        </fieldset>
+        <div class="form-grid">
+          <label>From
+            <input type="time" name="start" value="{{clock .User.StartMin}}" required>
+          </label>
+          <label>Until
+            <input type="time" name="end" value="{{clock .User.EndMin}}" required>
+          </label>
+          <label>Meeting length <span class="optional">minutes</span>
+            <input type="number" name="duration" min="5" max="240" value="{{.User.Duration}}" required>
+          </label>
+          <label>Buffer on each side <span class="optional">minutes</span>
+            <input type="number" name="buffer" min="0" max="120" value="{{.User.Buffer}}" required>
+          </label>
+          <label>Minimum notice <span class="optional">minutes</span>
+            <input type="number" name="notice" min="0" max="43200" value="{{.User.Notice}}" required>
+          </label>
+          <label>Book ahead <span class="optional">days</span>
+            <input type="number" name="horizon" min="1" max="90" value="{{.User.Horizon}}" required>
+          </label>
+        </div>
+        <label>Where to meet
+          <input name="location" value="{{.User.Location}}" maxlength="500" placeholder="A meeting link, phone number, or address">
+          <span class="hint">Shown on the booking page and included in the invitation.</span>
+        </label>
+        <label class="check-row"><input type="checkbox" name="enabled" {{if .User.Enabled}}checked{{end}}>Publish my booking page</label>
+        <p class="hint">Connect Google and choose a destination calendar first. Changes apply to new bookings.</p>
+        <button>Save availability</button>
+      </form>
+    </section>
+
+    <aside>
+      <section class="card" id="calendars">
+        <h2>Calendars</h2>
+        {{if not .GoogleConfigured}}
+        <div class="alert">Google is not configured yet. Your server owner needs to set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, then restart Slot. See the setup guide.</div>
+        {{else}}
+        <form action="/oauth/google" method="post">
+          <input type="hidden" name="csrf" value="{{.CSRF}}">
+          <button class="secondary full">+ Connect or reconnect Google</button>
+        </form>
+        {{end}}
+
+        {{range .Accounts}}
+        <div class="account-row">
+          <span>{{.Identity}}</span>
+          <form method="post" action="/calendars/refresh">
+            <input type="hidden" name="csrf" value="{{$.CSRF}}">
+            <input type="hidden" name="account" value="{{.ID}}">
+            <button class="text-button" title="Refresh calendar list">Refresh</button>
+          </form>
+        </div>
+        {{end}}
+
+        {{if .Calendars}}
+        <form method="post" action="/calendars">
+          <input type="hidden" name="csrf" value="{{.CSRF}}">
+          <fieldset class="calendar-list">
+            <legend>Check for conflicts</legend>
+            {{range .Calendars}}
+            <label class="check-row"><input type="checkbox" name="busy" value="{{.ID}}" {{if .CheckBusy}}checked{{end}}><span>{{.Name}}<small>{{.Identity}} · {{.Role}}</small></span></label>
+            {{end}}
+          </fieldset>
+          <label>Add bookings to
+            <select name="write" required>
+              <option value="">Choose a calendar</option>
+              {{range .Calendars}}{{if or (eq .Role "owner") (eq .Role "writer")}}
+              <option value="{{.ID}}" {{if eq $.User.WriteCalendar.Int64 .ID}}selected{{end}}>{{.Name}} — {{.Identity}}</option>
+              {{end}}{{end}}
+            </select>
+          </label>
+          <p class="hint">The destination calendar is always checked for conflicts. Google sends the guest invitations.</p>
+          <button class="full">Save calendars</button>
+        </form>
+        {{else}}
+        <div class="empty compact"><p>Your calendars will appear here after you connect Google.</p></div>
+        {{end}}
+      </section>
+
+      <section class="card">
+        <h2>Days off</h2>
+        <p class="hint">Block an entire date in your timezone. Existing bookings stay in place.</p>
+        <form method="post" action="/blocks" class="inline-form">
+          <input type="hidden" name="csrf" value="{{.CSRF}}">
+          <label class="grow">Date<input type="date" name="day" required></label>
+          <button class="secondary">Block date</button>
+        </form>
+        {{range .Blocks}}
+        <div class="account-row">
+          <span>{{.}}</span>
+          <form method="post" action="/blocks/delete">
+            <input type="hidden" name="csrf" value="{{$.CSRF}}">
+            <input type="hidden" name="day" value="{{.}}">
+            <button class="text-button">Remove</button>
+          </form>
+        </div>
+        {{end}}
+      </section>
+    </aside>
+  </div>
+
+  <section class="card" id="bookings">
+    <h2>Bookings</h2>
+    <p class="hint">Latest 100 bookings. Times are shown in each booking’s saved timezone.</p>
+    {{if .Bookings}}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Guest</th><th>When</th><th>Status</th><th>Manage</th></tr>
+        </thead>
+        <tbody>
+          {{range .Bookings}}
+          <tr>
+            <td><strong>{{.GuestName}}</strong><small>{{.GuestEmail}}</small></td>
+            <td>{{dateTime .Start .Timezone}}<small>{{.Location}}</small></td>
+            <td><span class="pill">{{.Status}}</span>{{if .LastError}}<small class="sync-error">{{.LastError}}</small>{{end}}</td>
+            <td>
+              <div class="actions">
+                {{if or (eq .Status "pending") (eq .Status "cancel_pending")}}
+                <form method="post" action="/bookings/{{.ID}}/retry">
+                  <input type="hidden" name="csrf" value="{{$.CSRF}}">
+                  <button class="text-button">Retry sync</button>
+                </form>
+                {{end}}
+                {{if or (eq .Status "pending") (eq .Status "confirmed")}}
+                <form method="post" action="/bookings/{{.ID}}/cancel" data-confirm="Cancel this booking and notify the guest through Google?">
+                  <input type="hidden" name="csrf" value="{{$.CSRF}}">
+                  <button class="text-button danger">Cancel</button>
+                </form>
+                {{end}}
+              </div>
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{else}}
+    <div class="empty"><p>No bookings yet.</p></div>
+    {{end}}
+  </section>
+
+  <section class="card" id="account">
+    <h2>Change password</h2>
+    <form method="post" action="/password">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <div class="form-grid">
+        <label>Current password
+          <input type="password" name="old_password" autocomplete="current-password" maxlength="256" required>
+        </label>
+        <label>New password
+          <input type="password" name="new_password" autocomplete="new-password" minlength="12" maxlength="256" required>
+        </label>
+      </div>
+      <button class="secondary">Update password</button>
+    </form>
+  </section>
+</main>
+{{template "foot" .}}{{end}}

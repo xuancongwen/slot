@@ -1,0 +1,43 @@
+{{define "manage"}}{{template "head" .}}
+<main class="narrow">
+  <section class="card manage-card" {{if or (eq .Booking.Status "pending") (eq .Booking.Status "cancel_pending")}}data-pending="true"{{end}}>
+    <span class="eyebrow">BOOKING WITH {{.User.Name}}</span>
+    {{if eq .Booking.Status "confirmed"}}
+    <div class="confirmation-mark">✓</div>
+    <h1>Booking<br>confirmed</h1>
+    <p>Google has accepted your booking and requested delivery of your invitation.</p>
+    {{else if eq .Booking.Status "pending"}}
+    <div class="confirmation-mark pending">◷</div>
+    <h1>Confirming<br>with Google</h1>
+    <p>This slot is reserved while we confirm it with Google. This page updates automatically. If it stays pending, contact your host.</p>
+    {{else if eq .Booking.Status "cancel_pending"}}
+    <h1>Cancellation<br>in progress</h1>
+    <p>We’re updating Google Calendar. The slot stays reserved until that finishes.</p>
+    {{else}}
+    <h1>Booking<br>cancelled</h1>
+    {{end}}
+
+    <div class="selected-time">
+      <strong>{{dateTime .Booking.Start .Booking.Timezone}}</strong>
+      <span>Until {{dateTime .Booking.End .Booking.Timezone}}</span>
+      {{if .Booking.Location}}<span>{{.Booking.Location}}</span>{{end}}
+    </div>
+    <p class="hint">{{.Booking.GuestName}} · {{.Booking.GuestEmail}}</p>
+
+    {{if eq .Booking.Status "confirmed"}}
+    <a class="button full" href="/manage/{{.Booking.ManageToken}}/event.ics">Download calendar event</a>
+    {{end}}
+    {{if or (eq .Booking.Status "pending") (eq .Booking.Status "cancel_pending")}}
+    <a class="button secondary full" href="/manage/{{.Booking.ManageToken}}">Refresh status</a>
+    {{end}}
+    {{if or (eq .Booking.Status "confirmed") (eq .Booking.Status "pending")}}
+    <form method="post" action="/manage/{{.Booking.ManageToken}}/cancel" data-confirm="Cancel this booking?">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button class="text-button danger">Cancel booking</button>
+    </form>
+    {{end}}
+    <p class="hint">Save this page’s link to manage your booking. Anyone with the link can cancel it.</p>
+    <a class="back-link" href="/b/{{.User.Slug}}">← Back to {{.User.Name}}’s booking page</a>
+  </section>
+</main>
+{{template "foot" .}}{{end}}
