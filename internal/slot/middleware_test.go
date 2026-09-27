@@ -116,3 +116,19 @@ func TestAdminHostedSeparately(t *testing.T) {
 		t.Fatalf("OAuth callback %s", a.oauth.RedirectURL)
 	}
 }
+
+func TestFavicons(t *testing.T) {
+	a, _ := testApp(t)
+	h := a.siteHandler()
+	for _, tc := range []struct{ page, icon string }{
+		{"/", "/static/favicon.svg"},
+		{"/admin/login", "/static/favicon-admin.svg"},
+	} {
+		if body := getRequest(h, tc.page).Body.String(); !strings.Contains(body, `rel="icon" type="image/svg+xml" href="`+tc.icon+`"`) {
+			t.Errorf("%s should link %s", tc.page, tc.icon)
+		}
+		if w := getRequest(h, tc.icon); w.Code != 200 || w.Header().Get("Content-Type") != "image/svg+xml" {
+			t.Errorf("%s: %d %s", tc.icon, w.Code, w.Header().Get("Content-Type"))
+		}
+	}
+}
