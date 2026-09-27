@@ -48,6 +48,31 @@ The default published ports bind to host loopback. A reverse proxy running on th
 
 The container runs as a non-root user, with a read-only root filesystem and a writable named volume for `/data`. There is no shell in the runtime image. To move architectures, build the image on that host, or use Docker Buildx for `linux/amd64` or `linux/arm64`.
 
+## Deploy to a Debian 13 LXC
+
+`deploy/setup.sh` prepares a bare Debian 13 container, and `deploy/deploy.sh` builds and ships Slot to it. Both work as `root`; no users are added. Slot runs as root under a systemd sandbox that leaves only `/var/lib/slot` writable and drops every capability.
+
+Container to create (Slot uses about 25 MB of memory; the rest is Debian and headroom):
+
+| Setting | Value |
+| --- | --- |
+| Template | Debian 13 (trixie), unprivileged |
+| Features | `nesting=1`, needed by the systemd sandbox |
+| CPU | 1 core. Each sign-in costs one PBKDF2 hash (about 0.1–0.3 s of a core); 2 cores if several hosts sign in at once. |
+| Memory | 256 MB, plus 256 MB swap |
+| Disk | 4 GB |
+| Network | A fixed address (static or DHCP reservation) that your reverse proxy can reach on 8080; keep 8081 to your LAN or VPN |
+
+Then, from your checkout:
+
+```sh
+scp deploy/setup.sh root@slot.lan: && ssh root@slot.lan ./setup.sh
+ssh root@slot.lan editor /etc/slot/slot.env   # origins and Google OAuth client
+deploy/deploy.sh root@slot.lan
+```
+
+`deploy.sh` runs `make check`, cross-compiles for the container's architecture (amd64 or arm64), backs up the database to `/var/backups/slot` (the last 10 are kept), swaps the binary, and waits for `/healthz`. If the new build does not come up, it restores the previous binary. Configuration lives in `/etc/slot/slot.env`; after editing it, run `systemctl restart slot`. Logs: `journalctl -u slot`.
+
 ## Google setup
 
 1. Create or choose a Google Cloud project and enable **Google Calendar API**.
