@@ -18,8 +18,8 @@
     {{end}}
 
     <div class="selected-time">
-      <strong>{{dateTime .Booking.Start .Booking.Timezone}}</strong>
-      <span>Until {{dateTime .Booking.End .Booking.Timezone}}</span>
+      <strong>{{dateTime .Booking.Start (guestZone .Booking)}}</strong>
+      <span>Until {{dateTime .Booking.End (guestZone .Booking)}}</span>
       {{if isLink .Booking.Location}}<a href="{{.Booking.Location}}" rel="noopener">{{.Booking.Location}}</a>{{else if .Booking.Location}}<span>{{.Booking.Location}}</span>{{else if .Booking.Meet}}<span>Google Meet link on its way with the invitation</span>{{end}}
     </div>
     <p class="hint">{{.Booking.GuestName}} · {{.Booking.GuestEmail}}</p>

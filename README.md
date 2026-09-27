@@ -1,6 +1,6 @@
 # Slot
 
-A small Google Calendar booking app for a home lab. One Go process, one SQLite database, two HTTP listeners. Server-rendered HTML, local CSS, and less than 1 KB of optional JavaScript. No Node runtime, Redis, mail server, or external frontend assets.
+A small Google Calendar booking app for a home lab. One Go process, one SQLite database, two HTTP listeners. Server-rendered HTML, local CSS, and about 1 KB of optional JavaScript. No Node runtime, Redis, mail server, or external frontend assets.
 
 > **Status: not yet functional.** Slot is a work in progress and is not ready for use. The features below describe the intended first version, not a working release.
 
@@ -91,7 +91,7 @@ The app does not trust `X-Forwarded-For`. Its in-process rate limit therefore gr
 
 ## Booking behavior and reliability
 
-1. Slot generation follows the host's timezone and weekly hours. Google is queried for current busy intervals across selected calendars, in batches of at most 50 per account.
+1. Slot generation follows the meeting type's timezone and weekly hours. Google is queried for current busy intervals across selected calendars, in batches of at most 50 per account.
 2. Availability is checked again on submission. Errors or missing Google calendar results close availability rather than treating the calendar as empty.
 3. An SQLite trigger reserves the interval atomically. Pending and cancelling bookings block time too. Hosts using the same Google destination calendar cannot reserve overlapping times through Slot.
 4. A background worker runs every 15 seconds and inserts the Google event using a stable ID. A timed-out write can be retried without intentionally creating a second event. The signed form ticket makes duplicate form submissions return the same booking.
@@ -107,7 +107,7 @@ Google Calendar does not offer an atomic “insert only if still free” operati
 ## Intentional first-pass limits
 
 - One daily working-hours interval per meeting type, and full-day exceptions per host.
-- Times on the public page are explicitly shown in the host's timezone, including the UTC offset. Calendar invitations display in the guest's own calendar timezone.
+- Guests pick a date on a month calendar and see times in their own timezone, detected by the browser and changeable on the page. Without JavaScript the page shows the meeting type's timezone. Calendar invitations display in the guest's own calendar timezone.
 - Reschedule by cancelling and booking again. No payments, round-robin teams, reminder service, or per-booking Zoom meetings; a Zoom location is a fixed room link.
 - No account email verification, forgotten-password email flow, or site-wide super-admin. Protect registration through the private admin interface and optional code.
 - Reconnect/refresh Google accounts from the admin page. This version does not include account deletion or a disconnect UI; Google permissions can be revoked from the Google account, which causes affected booking operations to fail closed until reconnected or reconfigured.

@@ -535,11 +535,11 @@ td .sync-error {
 }
 
 .public-layout {
-  max-width: 1050px;
+  max-width: 1100px;
   margin: 64px auto;
   display: grid;
-  grid-template-columns: 1fr 1.1fr;
-  gap: 75px;
+  grid-template-columns: minmax(0,.8fr) minmax(0,1.5fr);
+  gap: 60px;
   padding: 0 35px;
 }
 
@@ -578,25 +578,6 @@ td .sync-error {
   padding: 32px;
 }
 
-.date-form {
-  display: flex;
-  align-items: end;
-  gap: 10px;
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 22px;
-  margin-bottom: 22px;
-}
-
-.date-form label {
-  margin: 0;
-  flex: 1;
-}
-
-.date-form button {
-  font-size: 12px;
-  padding: 12px;
-}
-
 .slots {
   display: grid;
   grid-template-columns: 1fr;
@@ -621,6 +602,101 @@ td .sync-error {
 
 .slot span {
   color: var(--muted);
+}
+
+.timezone-form {
+  margin-top: 28px;
+}
+
+.scheduler {
+  display: grid;
+  gap: 28px;
+  margin-top: 20px;
+}
+
+.scheduler.with-times {
+  grid-template-columns: minmax(0,1fr) 170px;
+}
+
+.month-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.month-nav a,
+.month-nav span {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 20px;
+  text-decoration: none;
+}
+
+.month-nav a:hover {
+  background: #edf0e5;
+}
+
+.month-nav span {
+  color: var(--line);
+}
+
+table.month {
+  table-layout: fixed;
+  text-align: center;
+}
+
+.month th,
+.month td {
+  border: 0;
+  padding: 3px 0;
+}
+
+.month th {
+  letter-spacing: 0;
+}
+
+.day {
+  width: 40px;
+  height: 40px;
+  margin: auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 13px;
+  color: #a3ada6;
+}
+
+a.day {
+  color: var(--green);
+  background: #edf3d6;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+a.day:hover {
+  background: var(--accent);
+}
+
+a.day.selected {
+  background: var(--green);
+  color: var(--white);
+}
+
+.day-times .slots {
+  margin-top: 12px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.day-times .slot {
+  justify-content: center;
+  gap: 8px;
+  font-weight: 600;
 }
 
 .back-link {
@@ -733,6 +809,7 @@ footer {
     grid-template-columns: 1fr;
   }
   .public-layout {
+    grid-template-columns: 1fr;
     gap: 30px;
   }
   .host-intro h1 {
@@ -812,10 +889,14 @@ footer {
     margin-top: 25px;
     font-size: 9px;
   }
-  .date-form {
-    flex-wrap: wrap;
+  .scheduler.with-times {
+    grid-template-columns: 1fr;
   }
-  .date-form label {
-    min-width: 170px;
+  .day {
+    width: 36px;
+    height: 36px;
+  }
+  .day-times .slots {
+    max-height: none;
   }
 }

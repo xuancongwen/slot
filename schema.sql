@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS bookings (
  guest_name TEXT NOT NULL, guest_email TEXT NOT NULL,
  start INTEGER NOT NULL, end INTEGER NOT NULL, block_start INTEGER NOT NULL, block_end INTEGER NOT NULL,
  title TEXT NOT NULL, location TEXT NOT NULL, meet INTEGER NOT NULL DEFAULT 0, timezone TEXT NOT NULL,
+ guest_timezone TEXT NOT NULL DEFAULT '',
  manage_token TEXT NOT NULL UNIQUE,
  status TEXT NOT NULL CHECK(status IN ('pending','confirmed','cancel_pending','cancelled','failed')),
  created INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,

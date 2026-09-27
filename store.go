@@ -129,6 +129,7 @@ type Booking struct {
 	GuestName, GuestEmail                          string
 	Start, End, BlockStart, BlockEnd               int64
 	Title, Location, Timezone, ManageToken, Status string
+	GuestTimezone                                  string
 	Meet                                           bool
 	Created                                        int64
 	Attempts                                       int
@@ -136,11 +137,11 @@ type Booking struct {
 	LastError                                      string
 }
 
-const bookingColumns = "id,user_id,calendar_id,guest_name,guest_email,start,end,block_start,block_end,title,location,meet,timezone,manage_token,status,created,attempts,next_attempt,last_error"
+const bookingColumns = "id,user_id,calendar_id,guest_name,guest_email,start,end,block_start,block_end,title,location,meet,timezone,guest_timezone,manage_token,status,created,attempts,next_attempt,last_error"
 
 func scanBooking(s scanner) (Booking, error) {
 	var b Booking
-	e := s.Scan(&b.ID, &b.UserID, &b.CalendarID, &b.GuestName, &b.GuestEmail, &b.Start, &b.End, &b.BlockStart, &b.BlockEnd, &b.Title, &b.Location, &b.Meet, &b.Timezone, &b.ManageToken, &b.Status, &b.Created, &b.Attempts, &b.NextAttempt, &b.LastError)
+	e := s.Scan(&b.ID, &b.UserID, &b.CalendarID, &b.GuestName, &b.GuestEmail, &b.Start, &b.End, &b.BlockStart, &b.BlockEnd, &b.Title, &b.Location, &b.Meet, &b.Timezone, &b.GuestTimezone, &b.ManageToken, &b.Status, &b.Created, &b.Attempts, &b.NextAttempt, &b.LastError)
 	return b, e
 }
 func (a *App) getBooking(ctx context.Context, token string) (Booking, error) {
@@ -163,7 +164,7 @@ func (a *App) hostBookings(ctx context.Context, uid int64) ([]Booking, error) {
 	return bs, rows.Err()
 }
 func (a *App) reserve(ctx context.Context, b Booking) error {
-	_, e := a.db.ExecContext(ctx, `INSERT INTO bookings (id,user_id,calendar_id,guest_name,guest_email,start,end,block_start,block_end,title,location,meet,timezone,manage_token,status,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?)`, b.ID, b.UserID, b.CalendarID, b.GuestName, b.GuestEmail, b.Start, b.End, b.BlockStart, b.BlockEnd, b.Title, b.Location, b.Meet, b.Timezone, b.ManageToken, b.Created)
+	_, e := a.db.ExecContext(ctx, `INSERT INTO bookings (id,user_id,calendar_id,guest_name,guest_email,start,end,block_start,block_end,title,location,meet,timezone,guest_timezone,manage_token,status,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?)`, b.ID, b.UserID, b.CalendarID, b.GuestName, b.GuestEmail, b.Start, b.End, b.BlockStart, b.BlockEnd, b.Title, b.Location, b.Meet, b.Timezone, b.GuestTimezone, b.ManageToken, b.Created)
 	return e
 }
 
@@ -217,19 +218,42 @@ func generateSlots(mt MeetingType, day time.Time, now time.Time, busy []Span) []
 	return out
 }
 
-func (a *App) availability(ctx context.Context, u User, t MeetingType, day time.Time, now time.Time) ([]Slot, error) {
-	if !u.Enabled || !t.Active || !u.WriteCalendar.Valid {
+// availability returns open slots starting in [from, to). Guests view the range in their own
+// timezone, so it can straddle several of the meeting type's days; Google is asked once for all of it.
+func (a *App) availability(ctx context.Context, u User, t MeetingType, from, to time.Time, now time.Time) ([]Slot, error) {
+	if !u.Enabled || !t.Active || !u.WriteCalendar.Valid || !from.Before(to) {
 		return nil, nil
 	}
-	var blocked int
-	if e := a.db.QueryRowContext(ctx, "SELECT count(*) FROM blocks WHERE user_id=? AND day=?", u.ID, day.Format("2006-01-02")).Scan(&blocked); e != nil {
+	loc, e := time.LoadLocation(t.Timezone)
+	if e != nil {
 		return nil, e
 	}
-	if blocked > 0 {
-		return nil, nil
+	first := from.In(loc)
+	first = time.Date(first.Year(), first.Month(), first.Day(), 0, 0, 0, 0, loc)
+	var days []time.Time
+	for d := first; d.Before(to); d = d.AddDate(0, 0, 1) {
+		days = append(days, d)
 	}
-	from := day.Add(-time.Duration(t.Buffer) * time.Minute)
-	to := day.AddDate(0, 0, 1).Add(time.Duration(t.Buffer) * time.Minute)
+	blocked := map[string]bool{}
+	rows, e := a.db.QueryContext(ctx, "SELECT day FROM blocks WHERE user_id=? AND day BETWEEN ? AND ?", u.ID, days[0].Format("2006-01-02"), days[len(days)-1].Format("2006-01-02"))
+	if e != nil {
+		return nil, e
+	}
+	for rows.Next() {
+		var day string
+		if e = rows.Scan(&day); e != nil {
+			rows.Close()
+			return nil, e
+		}
+		blocked[day] = true
+	}
+	rows.Close()
+	if e = rows.Err(); e != nil {
+		return nil, e
+	}
+	padding := time.Duration(t.Buffer) * time.Minute
+	busyFrom := first.Add(-padding)
+	busyTo := days[len(days)-1].AddDate(0, 0, 1).Add(padding)
 	cs, e := a.calendars(ctx, u.ID)
 	if e != nil {
 		return nil, e
@@ -247,11 +271,11 @@ func (a *App) availability(ctx context.Context, u User, t MeetingType, day time.
 	if !hasWrite {
 		return nil, errors.New("booking calendar unavailable")
 	}
-	busy, e := a.google.Busy(ctx, selected, from, to)
+	busy, e := a.google.Busy(ctx, selected, busyFrom, busyTo)
 	if e != nil {
 		return nil, e
 	}
-	rows, e := a.db.QueryContext(ctx, `SELECT block_start,block_end FROM bookings WHERE user_id=? AND status IN ('pending','confirmed','cancel_pending') AND block_start<? AND block_end>?`, u.ID, to.Unix(), from.Unix())
+	rows, e = a.db.QueryContext(ctx, `SELECT block_start,block_end FROM bookings WHERE user_id=? AND status IN ('pending','confirmed','cancel_pending') AND block_start<? AND block_end>?`, u.ID, busyTo.Unix(), busyFrom.Unix())
 	if e != nil {
 		return nil, e
 	}
@@ -266,5 +290,16 @@ func (a *App) availability(ctx context.Context, u User, t MeetingType, day time.
 	if e = rows.Err(); e != nil {
 		return nil, e
 	}
-	return generateSlots(t, day, now, busy), nil
+	var out []Slot
+	for _, d := range days {
+		if blocked[d.Format("2006-01-02")] {
+			continue
+		}
+		for _, s := range generateSlots(t, d, now, busy) {
+			if s.Start >= from.Unix() && s.Start < to.Unix() {
+				out = append(out, s)
+			}
+		}
+	}
+	return out, nil
 }
