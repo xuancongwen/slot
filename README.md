@@ -67,11 +67,28 @@ Then, from your checkout:
 
 ```sh
 scp deploy/setup.sh root@slot.lan: && ssh root@slot.lan ./setup.sh
-ssh root@slot.lan editor /etc/slot/slot.env   # origins and Google OAuth client
+ssh root@slot.lan editor /etc/slot/slot.env   # origins, Google OAuth client, optional SINGLE_HOST
 deploy/deploy.sh root@slot.lan
 ```
 
 `deploy.sh` runs `make check`, cross-compiles for the container's architecture (amd64 or arm64), backs up the database to `/var/backups/slot` (the last 10 are kept), swaps the binary, and waits for `/healthz`. If the new build does not come up, it restores the previous binary. Configuration lives in `/etc/slot/slot.env`; after editing it, run `systemctl restart slot`. Logs: `journalctl -u slot`.
+
+## Single-host mode
+
+For a personal install, set `SINGLE_HOST` to your booking URL name and your booking page becomes the site root: guests visit `https://book.example.com/` rather than `https://book.example.com/b/sam`.
+
+```sh
+SINGLE_HOST=sam
+REGISTRATION_CODE=choose-a-long-code   # required with SINGLE_HOST
+```
+
+- **Registration happens once.** The sign-up form fills in `sam` as the URL name and accepts no other, and the registration code is required. As soon as an account exists, registration closes and the sign-in page stops offering it. Without a code, whoever reached the admin port first would own the server, so Slot refuses to start.
+- **The root is your page.** With one active meeting type, `/` shows its calendar directly, and choosing a date or time stays on `/`. With several, `/` lists them, and each opens at its usual `/b/sam/<type>` URL. `/b/sam` keeps working.
+- **Before you publish,** `/` shows the generic landing page.
+
+Behind a reverse proxy or tunnel, route the public hostname's root straight to the public listener (`:8080`); no path rewrite is needed. Set `PUBLIC_URL` to that hostname so form origin checks and invitation links match.
+
+Unset `SINGLE_HOST` to return to the multi-host layout: `/` becomes the landing page again, each host lives at `/b/<name>`, and `REGISTRATION_OPEN` and `REGISTRATION_CODE` alone decide who may register. Setting `SINGLE_HOST` on a server that already has several hosts serves the named host at the root and closes registration; the other hosts' `/b/<name>` pages keep working.
 
 ## Google setup
 
@@ -159,7 +176,7 @@ make bench   # slot-generation benchmark
 make fmt     # format the code
 ```
 
-Tests cover concurrent reservations, shared destination conflicts, DST gaps/repeated hours, host isolation, public/admin route separation, CSRF rejection, signed ticket integrity, registration/login, restart recovery, encrypted token refresh, Google API batching/errors, idempotent insertion, cancellation retries, and the end-to-end HTTP booking flow with a fake Calendar service.
+Tests cover concurrent reservations, shared destination conflicts, DST gaps/repeated hours, host isolation, public/admin route separation, CSRF rejection, signed ticket integrity, registration/login, single-host registration and root page, restart recovery, encrypted token refresh, Google API batching/errors, idempotent insertion, cancellation retries, and the end-to-end HTTP booking flow with a fake Calendar service.
 
 The real Google consent/invitation flow requires your OAuth client and Google accounts. Automated tests use local HTTP doubles; they do not connect to anyone's calendar.
 
