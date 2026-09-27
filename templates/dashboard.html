@@ -4,14 +4,14 @@
     <h1>{{.User.Name}}</h1>
     <form method="post" action="/logout">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
-      <button class="secondary small">Sign out</button>
+      <button class="secondary small danger-button">Sign out</button>
     </form>
   </div>
   {{template "messages" .}}
 
-  <section class="link-banner">
+  <section class="link-banner{{if .User.Enabled}} live{{end}}">
     <div>
-      <span class="status {{if .User.Enabled}}live{{end}}">{{if .User.Enabled}}● BOOKING PAGE LIVE{{else}}○ BOOKING PAGE PAUSED{{end}}</span>
+      <span class="status">{{if .User.Enabled}}● BOOKING PAGE LIVE{{else}}○ BOOKING PAGE PAUSED{{end}}</span>
       <a href="{{.BookingURL}}" target="_blank" rel="noopener">{{.BookingURL}} ↗</a>
     </div>
   </section>
@@ -58,9 +58,13 @@
         </form>
 
         <h2 class="subheading">Where to meet</h2>
-        <p class="hint">Guests choose one of these when they book, or enter their own. The default is preselected.</p>
-        {{range .Locations}}
+        <p class="hint">Guests choose one of these when they book, in this order, or enter their own. The default is preselected.</p>
+        {{range $i, $l := .Locations}}
         <div class="type-row">
+          <div class="reorder">
+            {{if gt $i 0}}<form method="post" action="/locations/{{.ID}}/move"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="direction" value="up"><button class="text-button" aria-label="Move {{.Label}} up">↑</button></form>{{end}}
+            {{if lt $i (lastIndex $.Locations)}}<form method="post" action="/locations/{{.ID}}/move"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="direction" value="down"><button class="text-button" aria-label="Move {{.Label}} down">↓</button></form>{{end}}
+          </div>
           <div>
             <strong>{{.Label}}</strong>
             <small>{{if eq .Kind "meet"}}A new Google Meet link for each booking{{else}}{{.Detail}}{{end}}</small>

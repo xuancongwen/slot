@@ -720,6 +720,40 @@ func TestLocationEditingIsolation(t *testing.T) {
 		t.Fatal("default not changed")
 	}
 }
+func TestReorderLocations(t *testing.T) {
+	a, _ := testApp(t)
+	u := seedHost(t, a, "one")
+	v := seedHost(t, a, "two")
+	cookie := sessionFor(t, a, u)
+	h := a.adminHandler()
+	order := func(u User) string {
+		ls, e := a.locations(context.Background(), u)
+		if e != nil {
+			t.Fatal(e)
+		}
+		var labels []string
+		for _, l := range ls {
+			labels = append(labels, l.Label)
+		}
+		return fmt.Sprint(labels)
+	}
+	formRequest(h, "/locations", url.Values{"label": {"Office"}}, true, cookie)
+	for _, tc := range []struct{ label, direction, want string }{
+		{"Office", "up", "[Google Meet Office Zoom]"},
+		{"Office", "up", "[Office Google Meet Zoom]"},
+		{"Office", "up", "[Office Google Meet Zoom]"},
+		{"Google Meet", "down", "[Office Zoom Google Meet]"},
+	} {
+		formRequest(h, "/locations/"+locationID(t, a, u, tc.label)+"/move", url.Values{"direction": {tc.direction}}, true, cookie)
+		if got := order(u); got != tc.want {
+			t.Fatalf("after moving %s %s: %s, want %s", tc.label, tc.direction, got, tc.want)
+		}
+	}
+	formRequest(h, "/locations/"+locationID(t, a, v, "Zoom")+"/move", url.Values{"direction": {"up"}}, true, cookie)
+	if got := order(v); got != "[Google Meet Zoom]" {
+		t.Fatalf("another host's locations reordered: %s", got)
+	}
+}
 func TestTokenRefreshEncryptedAndPersistent(t *testing.T) {
 	a, _ := testApp(t)
 	u := seedHost(t, a, "alex")
@@ -846,6 +880,41 @@ func TestMeetingTypeEditingAndIsolation(t *testing.T) {
 		t.Fatal("another host's meeting type was changed or deleted")
 	}
 }
+func TestSlugify(t *testing.T) {
+	for name, want := range map[string]string{
+		"30 minute chat":           "30-minute-chat",
+		"  Coffee chat (30 min)! ": "coffee-chat-30-min",
+		"Café ☕":                   "caf",
+		"☕☕":                       "meeting",
+		strings.Repeat("ab ", 30):  "ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-a", // Cut at the 40-character limit.
+	} {
+		if got := slugify(name); got != want || !slugPattern.MatchString(got) {
+			t.Errorf("slugify(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+func TestBlankSlugComesFromName(t *testing.T) {
+	a, _ := testApp(t)
+	u := seedHost(t, a, "alex")
+	cookie := sessionFor(t, a, u)
+	form := url.Values{"name": {"Chat"}, "slug": {""}, "timezone": {"UTC"}, "duration": {"30"}, "days": {"1"}, "start": {"09:00"}, "end": {"17:00"}, "buffer": {"0"}, "notice": {"0"}, "horizon": {"30"}}
+	for range 2 {
+		if w := formRequest(a.adminHandler(), "/types", form, true, cookie); w.Code != 303 {
+			t.Fatalf("create: %d %s", w.Code, w.Body)
+		}
+	}
+	rows, _ := a.db.Query("SELECT slug FROM meeting_types WHERE user_id=? ORDER BY id", u.ID)
+	var slugs []string
+	for rows.Next() {
+		var slug string
+		rows.Scan(&slug)
+		slugs = append(slugs, slug)
+	}
+	rows.Close()
+	if fmt.Sprint(slugs) != "[chat chat-2 chat-3]" {
+		t.Fatalf("slugs %v", slugs)
+	}
+}
 func TestHostPageListsActiveTypes(t *testing.T) {
 	a, _ := testApp(t)
 	u := seedHost(t, a, "alex")
@@ -877,6 +946,26 @@ func TestTimezoneListLoads(t *testing.T) {
 		if !validTimezone(tz) {
 			t.Errorf("listed timezone does not load: %s", tz)
 		}
+	}
+}
+func TestUpgradeFromVersion4(t *testing.T) {
+	a, _ := testApp(t)
+	seedHost(t, a, "alex")
+	for _, q := range []string{"ALTER TABLE locations DROP COLUMN position", "PRAGMA user_version=4"} {
+		if _, e := a.db.Exec(q); e != nil {
+			t.Fatal(e)
+		}
+	}
+	a.db.Close()
+	b, e := newApp(a.cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer b.db.Close()
+	var version, n int
+	b.db.QueryRow("PRAGMA user_version").Scan(&version)
+	if e = b.db.QueryRow("SELECT count(*) FROM locations WHERE position=0").Scan(&n); e != nil || version != schemaVersion || n != 2 {
+		t.Fatalf("version %d, rows %d, error %v", version, n, e)
 	}
 }
 func TestOldSchemaRefused(t *testing.T) {

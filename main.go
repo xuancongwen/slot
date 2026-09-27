@@ -36,11 +36,15 @@ import (
 //go:embed templates/*.html static/* schema.sql timezones.txt
 var assets embed.FS
 
-// Development builds do not migrate: bump this whenever schema.sql changes shape,
-// and an older database fails fast instead of running against missing columns.
-const schemaVersion = 4
+// Bump schemaVersion whenever schema.sql changes shape, and add the step that brings
+// the previous version's database up to it. Databases older than the first step
+// predate migrations and must start fresh.
+const schemaVersion = 5
 
-func checkSchemaVersion(db *sql.DB) error {
+func migrate(db *sql.DB) error {
+	steps := map[int]string{
+		4: "ALTER TABLE locations ADD COLUMN position INTEGER NOT NULL DEFAULT 0;",
+	}
 	var version, tables int
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return err
@@ -48,10 +52,26 @@ func checkSchemaVersion(db *sql.DB) error {
 	if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='users'").Scan(&tables); err != nil {
 		return err
 	}
-	if tables > 0 && version != schemaVersion {
-		return fmt.Errorf("database schema version %d does not match this build's %d; development builds do not migrate, so move the data directory aside and start fresh", version, schemaVersion)
+	if tables == 0 || version == schemaVersion {
+		return nil
 	}
-	return nil
+	if _, ok := steps[version]; !ok || version > schemaVersion {
+		return fmt.Errorf("database schema version %d cannot be upgraded to this build's %d; move the data directory aside and start fresh", version, schemaVersion)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for ; version < schemaVersion; version++ {
+		if _, err = tx.Exec(steps[version]); err != nil {
+			return fmt.Errorf("upgrading database schema from version %d: %w", version, err)
+		}
+	}
+	if _, err = tx.Exec(fmt.Sprintf("PRAGMA user_version=%d;", schemaVersion)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 type Config struct {
@@ -145,7 +165,7 @@ func newApp(c Config) (*App, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1) // One short-lived SQL operation at a time; never hold a connection across Google calls.
-	if err = checkSchemaVersion(db); err != nil {
+	if err = migrate(db); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -171,6 +191,8 @@ func newApp(c Config) (*App, error) {
 		return b.Timezone
 	}, "isLink": func(s string) bool {
 		return strings.HasPrefix(s, "https://") || strings.HasPrefix(s, "http://")
+	}, "lastIndex": func(ls []Location) int {
+		return len(ls) - 1
 	}, "hasMeet": func(ls []Location) bool {
 		for _, l := range ls {
 			if l.Kind == "meet" {

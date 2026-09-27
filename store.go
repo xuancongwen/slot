@@ -78,7 +78,7 @@ func (l Location) Text() string {
 }
 
 func (a *App) locations(ctx context.Context, u User) ([]Location, error) {
-	rows, e := a.db.QueryContext(ctx, "SELECT id,kind,label,detail FROM locations WHERE user_id=? ORDER BY id", u.ID)
+	rows, e := a.db.QueryContext(ctx, "SELECT id,kind,label,detail FROM locations WHERE user_id=? ORDER BY position,id", u.ID)
 	if e != nil {
 		return nil, e
 	}
