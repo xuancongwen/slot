@@ -1,16 +1,14 @@
-package main
+package slot
 
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"sync"
 	"time"
 
@@ -23,14 +21,17 @@ type CalendarProvider interface {
 	Insert(context.Context, Calendar, Booking) (string, error)
 	Delete(context.Context, Calendar, Booking) error
 }
+
 type Google struct {
 	app     *App
 	baseURL string
 	tokenMu sync.Mutex
 }
+
 type APIError struct{ Status int }
 
 func (e *APIError) Error() string { return fmt.Sprintf("Google Calendar returned HTTP %d", e.Status) }
+
 func (g *Google) token(ctx context.Context, account int64) (string, error) {
 	g.tokenMu.Lock()
 	defer g.tokenMu.Unlock()
@@ -65,6 +66,7 @@ func (g *Google) token(ctx context.Context, account int64) (string, error) {
 	}
 	return t.AccessToken, nil
 }
+
 func (g *Google) request(ctx context.Context, token, method, path string, body any, out any) error {
 	var reader io.Reader
 	if body != nil {
@@ -165,6 +167,7 @@ func (g *Google) Busy(ctx context.Context, cs []Calendar, from, to time.Time) ([
 	}
 	return all, first
 }
+
 func (g *Google) busyAccount(ctx context.Context, account int64, cs []Calendar, from, to time.Time) ([]Span, error) {
 	token, e := g.token(ctx, account)
 	if e != nil {
@@ -202,6 +205,7 @@ func (g *Google) busyAccount(ctx context.Context, account int64, cs []Calendar, 
 	}
 	return all, nil
 }
+
 func (g *Google) Insert(ctx context.Context, c Calendar, b Booking) (string, error) {
 	token, e := g.token(ctx, c.AccountID)
 	if e != nil {
@@ -238,6 +242,7 @@ func (g *Google) Insert(ctx context.Context, c Calendar, b Booking) (string, err
 	}
 	return created.HangoutLink, e
 }
+
 func (g *Google) Delete(ctx context.Context, c Calendar, b Booking) error {
 	token, e := g.token(ctx, c.AccountID)
 	if e != nil {
@@ -249,140 +254,4 @@ func (g *Google) Delete(ctx context.Context, c Calendar, b Booking) error {
 		return nil
 	}
 	return e
-}
-
-func (a *App) oauthStart(w http.ResponseWriter, r *http.Request) {
-	if a.cfg.GoogleClientID == "" {
-		a.fail(w, r, 400, "Google OAuth is not configured. Set the Google client environment variables and restart.")
-		return
-	}
-	u := currentUser(r)
-	session, _ := r.Cookie("slot_session")
-	state := randomHex(32)
-	verifier := oauth2.GenerateVerifier()
-	_, e := a.db.ExecContext(r.Context(), "INSERT INTO oauth_states VALUES(?,?,?,?,?)", hashToken(state), u.ID, hashToken(session.Value), verifier, time.Now().Add(10*time.Minute).Unix())
-	if e != nil {
-		a.internal(w, r, e)
-		return
-	}
-	// OAuth crosses origins intentionally; this redirect is issued only after a CSRF-checked POST.
-	http.Redirect(w, r, a.oauth.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.S256ChallengeOption(verifier), oauth2.SetAuthURLParam("prompt", "consent select_account")), 303)
-}
-func (a *App) oauthCallback(w http.ResponseWriter, r *http.Request) {
-	u := currentUser(r)
-	cookie, _ := r.Cookie("slot_session")
-	var verifier string
-	e := a.db.QueryRowContext(r.Context(), `DELETE FROM oauth_states WHERE state=? AND user_id=? AND session=? AND expires>? RETURNING verifier`, hashToken(r.URL.Query().Get("state")), u.ID, hashToken(cookie.Value), time.Now().Unix()).Scan(&verifier)
-	if e != nil {
-		a.fail(w, r, 400, "Google connection expired or belongs to a different session. Please try again.")
-		return
-	}
-	if r.URL.Query().Get("error") != "" {
-		a.fail(w, r, 400, "Google connection was not approved. Please try again when ready.")
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
-	ctx = context.WithValue(ctx, oauth2.HTTPClient, a.http)
-	t, e := a.oauth.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(verifier))
-	if e != nil {
-		a.fail(w, r, 502, "Google authorization could not be completed. Check the client configuration and try again.")
-		return
-	}
-	if t.RefreshToken == "" {
-		a.fail(w, r, 400, "Google did not grant offline access. Reconnect and approve all requested permissions.")
-		return
-	}
-	g := a.google.(*Google)
-	cs, e := g.list(ctx, t.AccessToken)
-	if e != nil {
-		a.fail(w, r, 502, "Calendar list unavailable. Approve all requested Google Calendar permissions and reconnect.")
-		return
-	}
-	identity := ""
-	for _, c := range cs {
-		if c.Primary {
-			identity = c.ID
-			break
-		}
-	}
-	if identity == "" {
-		a.fail(w, r, 400, "No primary Google Calendar was found.")
-		return
-	}
-	data, e := json.Marshal(t)
-	if e != nil {
-		a.internal(w, r, e)
-		return
-	}
-	tx, e := a.db.BeginTx(ctx, nil)
-	if e != nil {
-		a.internal(w, r, e)
-		return
-	}
-	defer tx.Rollback()
-	var account int64
-	e = tx.QueryRowContext(ctx, `INSERT INTO accounts(user_id,identity,token) VALUES(?,?,?) ON CONFLICT(user_id,identity) DO UPDATE SET token=excluded.token RETURNING id`, u.ID, identity, a.seal(data)).Scan(&account)
-	if e == nil {
-		e = saveCalendars(ctx, tx, account, cs)
-	}
-	if e == nil {
-		e = tx.Commit()
-	}
-	if e != nil {
-		a.internal(w, r, e)
-		return
-	}
-	http.Redirect(w, r, "/?notice=connected", 303)
-}
-func saveCalendars(ctx context.Context, tx *sql.Tx, account int64, cs []remoteCalendar) error {
-	// Keep missing rows for booking history, but remove their ability to accept writes.
-	if _, e := tx.ExecContext(ctx, "UPDATE calendars SET role='unavailable' WHERE account_id=?", account); e != nil {
-		return e
-	}
-	for _, c := range cs {
-		if _, e := tx.ExecContext(ctx, `INSERT INTO calendars(account_id,google_id,name,role,check_busy) VALUES(?,?,?,?,?) ON CONFLICT(account_id,google_id) DO UPDATE SET name=excluded.name,role=excluded.role`, account, c.ID, c.Summary, c.AccessRole, c.Primary); e != nil {
-			return e
-		}
-	}
-	return nil
-}
-func (a *App) refreshCalendars(w http.ResponseWriter, r *http.Request) {
-	u := currentUser(r)
-	id, e := strconv.ParseInt(r.PostForm.Get("account"), 10, 64)
-	if e != nil {
-		a.fail(w, r, 400, "Invalid account")
-		return
-	}
-	var owner int64
-	if e = a.db.QueryRowContext(r.Context(), "SELECT user_id FROM accounts WHERE id=?", id).Scan(&owner); e != nil || owner != u.ID {
-		http.NotFound(w, r)
-		return
-	}
-	g := a.google.(*Google)
-	token, e := g.token(r.Context(), id)
-	if e != nil {
-		a.fail(w, r, 502, "Reconnect this Google account.")
-		return
-	}
-	cs, e := g.list(r.Context(), token)
-	if e != nil {
-		a.fail(w, r, 502, "Could not refresh calendars. Please try again.")
-		return
-	}
-	tx, e := a.db.BeginTx(r.Context(), nil)
-	if e != nil {
-		a.internal(w, r, e)
-		return
-	}
-	defer tx.Rollback()
-	e = saveCalendars(r.Context(), tx, id, cs)
-	if e == nil {
-		e = tx.Commit()
-	}
-	if e != nil {
-		a.internal(w, r, e)
-		return
-	}
-	http.Redirect(w, r, "/?notice=refreshed", 303)
 }

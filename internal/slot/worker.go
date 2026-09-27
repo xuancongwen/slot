@@ -1,4 +1,4 @@
-package main
+package slot
 
 import (
 	"context"
@@ -18,29 +18,25 @@ func (a *App) worker(ctx context.Context) {
 		}
 	}
 }
+
 func (a *App) reconcile(ctx context.Context) {
-	rows, e := a.db.QueryContext(ctx, "SELECT id FROM bookings WHERE status IN ('pending','cancel_pending') AND next_attempt<=? ORDER BY created LIMIT 20", time.Now().Unix())
+	ids, e := queryAll(ctx, a.db, scanString, "SELECT id FROM bookings WHERE status IN ('pending','cancel_pending') AND next_attempt<=? ORDER BY created LIMIT 20", time.Now().Unix())
 	if e != nil {
-		return
+		slog.Error("list bookings to sync", "error", e)
 	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if e = rows.Scan(&id); e != nil {
-			break
-		}
-		ids = append(ids, id)
-	}
-	rows.Close()
 	for _, id := range ids {
 		if ctx.Err() != nil {
 			return
 		}
 		a.syncBooking(ctx, id)
 	}
-	a.db.ExecContext(ctx, "DELETE FROM sessions WHERE expires<?", time.Now().Unix())
-	a.db.ExecContext(ctx, "DELETE FROM oauth_states WHERE expires<?", time.Now().Unix())
+	for _, table := range []string{"sessions", "oauth_states"} {
+		if _, e = a.db.ExecContext(ctx, "DELETE FROM "+table+" WHERE expires<?", time.Now().Unix()); e != nil && ctx.Err() == nil {
+			slog.Error("expire rows", "table", table, "error", e)
+		}
+	}
 }
+
 func (a *App) syncBooking(ctx context.Context, id string) {
 	// Serialize Google writes and cancellation transitions within this single-process app.
 	a.syncMu.Lock()
@@ -76,6 +72,7 @@ func (a *App) syncBooking(ctx context.Context, id string) {
 		slog.Error("persist calendar result", "booking", id, "error", e)
 	}
 }
+
 func (a *App) cancelBooking(ctx context.Context, b Booking) error {
 	a.syncMu.Lock()
 	defer a.syncMu.Unlock()

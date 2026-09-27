@@ -1,4 +1,6 @@
-package main
+// Package slot is a self-hosted Google Calendar booking service: one SQLite
+// database, a public booking listener, and a separate admin listener.
+package slot
 
 import (
 	"context"
@@ -16,15 +18,12 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
-	_ "time/tzdata"
+	_ "time/tzdata" // The scratch container image has no zoneinfo.
 
 	"golang.org/x/oauth2"
 	_ "modernc.org/sqlite"
@@ -33,53 +32,10 @@ import (
 // timezones.txt lists UTC plus the canonical IANA zones ("Z" entries in tzdata.zi,
 // excluding Etc/*), so the picker offers one name per region rather than every alias.
 //
-//go:embed templates/*.html static/* schema.sql timezones.txt
+//go:embed web/templates/*.html web/static/* schema.sql timezones.txt
 var assets embed.FS
 
-// Bump schemaVersion whenever schema.sql changes shape, and add the step that brings
-// the previous version's database up to it. Databases older than the first step
-// predate migrations and must start fresh.
-const schemaVersion = 5
-
-func migrate(db *sql.DB) error {
-	steps := map[int]string{
-		4: "ALTER TABLE locations ADD COLUMN position INTEGER NOT NULL DEFAULT 0;",
-	}
-	var version, tables int
-	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
-		return err
-	}
-	if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='users'").Scan(&tables); err != nil {
-		return err
-	}
-	if tables == 0 || version == schemaVersion {
-		return nil
-	}
-	if _, ok := steps[version]; !ok || version > schemaVersion {
-		return fmt.Errorf("database schema version %d cannot be upgraded to this build's %d; move the data directory aside and start fresh", version, schemaVersion)
-	}
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	for ; version < schemaVersion; version++ {
-		if _, err = tx.Exec(steps[version]); err != nil {
-			return fmt.Errorf("upgrading database schema from version %d: %w", version, err)
-		}
-	}
-	if _, err = tx.Exec(fmt.Sprintf("PRAGMA user_version=%d;", schemaVersion)); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-type Config struct {
-	DataDir, PublicAddr, AdminAddr, PublicURL, AdminURL  string
-	GoogleClientID, GoogleClientSecret, RegistrationCode string
-	RegistrationOpen                                     bool
-}
-
+// App holds the database, keys, templates, and Google client shared by both listeners.
 type App struct {
 	db         *sql.DB
 	cfg        Config
@@ -95,31 +51,8 @@ type App struct {
 	authSlots  chan struct{}
 }
 
-func env(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
-
-func config() (Config, error) {
-	c := Config{DataDir: env("DATA_DIR", "data"), PublicAddr: env("PUBLIC_ADDR", ":8080"), AdminAddr: env("ADMIN_ADDR", "127.0.0.1:8081"), PublicURL: strings.TrimRight(env("PUBLIC_URL", "http://localhost:8080"), "/"), AdminURL: strings.TrimRight(env("ADMIN_URL", "http://localhost:8081"), "/"), GoogleClientID: os.Getenv("GOOGLE_CLIENT_ID"), GoogleClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"), RegistrationCode: os.Getenv("REGISTRATION_CODE"), RegistrationOpen: env("REGISTRATION_OPEN", "true") == "true"}
-	for _, raw := range []string{c.PublicURL, c.AdminURL} {
-		u, err := url.Parse(raw)
-		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
-			return c, errors.New("PUBLIC_URL and ADMIN_URL must be absolute http(s) origins without a path")
-		}
-	}
-	if c.PublicURL == c.AdminURL {
-		return c, errors.New("public and admin origins must differ")
-	}
-	if (c.GoogleClientID == "") != (c.GoogleClientSecret == "") {
-		return c, errors.New("set both GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET")
-	}
-	return c, nil
-}
-
-func newApp(c Config) (*App, error) {
+// New opens (creating if needed) the data directory, its encryption key, and database.
+func New(c Config) (*App, error) {
 	if err := os.MkdirAll(c.DataDir, 0700); err != nil {
 		return nil, err
 	}
@@ -206,7 +139,7 @@ func newApp(c Config) (*App, error) {
 			return ""
 		}
 		return time.Now().In(loc).Format("UTC-07:00")
-	}}).ParseFS(assets, "templates/*.html")
+	}}).ParseFS(assets, "web/templates/*.html")
 	if err != nil {
 		db.Close()
 		return nil, err
@@ -221,34 +154,26 @@ func newApp(c Config) (*App, error) {
 	return a, nil
 }
 
-func main() {
-	c, err := config()
-	if err != nil {
-		slog.Error("configuration", "error", err)
-		os.Exit(1)
-	}
-	a, err := newApp(c)
-	if err != nil {
-		slog.Error("startup", "error", err)
-		os.Exit(1)
-	}
-	defer a.db.Close()
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+// Close releases the database.
+func (a *App) Close() error { return a.db.Close() }
+
+// Run serves both listeners and the calendar sync worker until ctx is cancelled,
+// then shuts down gracefully.
+func (a *App) Run(ctx context.Context) error {
+	ctx, stop := context.WithCancel(ctx)
 	defer stop()
-	public := server(c.PublicAddr, a.publicHandler())
-	admin := server(c.AdminAddr, a.adminHandler())
-	pl, err := net.Listen("tcp", c.PublicAddr)
+	public := server(a.cfg.PublicAddr, a.publicHandler())
+	admin := server(a.cfg.AdminAddr, a.adminHandler())
+	pl, err := net.Listen("tcp", a.cfg.PublicAddr)
 	if err != nil {
-		slog.Error("public listener", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("public listener: %w", err)
 	}
-	al, err := net.Listen("tcp", c.AdminAddr)
+	al, err := net.Listen("tcp", a.cfg.AdminAddr)
 	if err != nil {
 		pl.Close()
-		slog.Error("admin listener", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("admin listener: %w", err)
 	}
-	slog.Info("Slot ready", "public", c.PublicURL, "admin", c.AdminURL)
+	slog.Info("Slot ready", "public", a.cfg.PublicURL, "admin", a.cfg.AdminURL)
 	var wg sync.WaitGroup
 	for _, pair := range []struct {
 		s *http.Server
@@ -271,11 +196,13 @@ func main() {
 	public.Shutdown(shutdown)
 	admin.Shutdown(shutdown)
 	wg.Wait()
+	return nil
 }
 
 func server(addr string, h http.Handler) *http.Server {
 	return &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 20 * time.Second, WriteTimeout: 90 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 }
+
 func randomHex(n int) string {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
@@ -283,6 +210,7 @@ func randomHex(n int) string {
 	}
 	return hex.EncodeToString(b)
 }
+
 func (a *App) seal(data []byte) []byte {
 	n := make([]byte, a.aead.NonceSize())
 	if _, err := rand.Read(n); err != nil {
@@ -290,6 +218,7 @@ func (a *App) seal(data []byte) []byte {
 	}
 	return a.aead.Seal(n, n, data, nil)
 }
+
 func (a *App) open(data []byte) ([]byte, error) {
 	n := a.aead.NonceSize()
 	if len(data) < n {

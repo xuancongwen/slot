@@ -28,7 +28,7 @@ Requires Go 1.26 or newer. Go 1.27 is used in the container build.
 make run
 ```
 
-`make build` builds the `slot` binary without running it.
+`make build` builds `bin/slot` without running it.
 
 - Admin: <http://localhost:8081>
 - Public: <http://localhost:8080>
@@ -137,4 +137,8 @@ Tests cover concurrent reservations, shared destination conflicts, DST gaps/repe
 
 The real Google consent/invitation flow requires your OAuth client and Google accounts. Automated tests use local HTTP doubles; they do not connect to anyone's calendar.
 
-Main files: `main.go` (startup/config), `schema.sql` (storage), `store.go` (availability), `google.go` (OAuth/API), `worker.go` (durable writes), `security.go` (auth/CSRF), `handlers.go` (HTTP), `templates/` and `static/` (embedded interface).
+Layout:
+
+- `cmd/slot/`: the entry point; reads configuration and runs the server.
+- `internal/slot/`: the application, one file per concern: `app.go` (startup, keys, `Run`), `config.go`, `schema.go` and `schema.sql` (storage and upgrades), `store.go` (records and queries), `availability.go` (slot generation), `google.go` and `oauth.go` (Calendar API and connecting accounts), `worker.go` (durable writes), `middleware.go` and `auth.go` (headers, CSRF, rate limits, sessions), and the HTTP handlers in `routes.go`, `dashboard.go`, `meeting_types.go`, `locations.go`, `booking.go`, and `manage.go`. Tests sit beside the file they cover.
+- `internal/slot/web/`: embedded templates and static assets.

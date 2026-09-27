@@ -3,7 +3,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /slot . \
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /slot ./cmd/slot \
     && mkdir /empty-data && chown 65532:65532 /empty-data
 
 FROM scratch
