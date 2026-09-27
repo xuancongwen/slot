@@ -1,4 +1,4 @@
-package main
+package slot
 
 import (
 	"context"
@@ -18,6 +18,7 @@ func (a *App) worker(ctx context.Context) {
 		}
 	}
 }
+
 func (a *App) reconcile(ctx context.Context) {
 	rows, e := a.db.QueryContext(ctx, "SELECT id FROM bookings WHERE status IN ('pending','cancel_pending') AND next_attempt<=? ORDER BY created LIMIT 20", time.Now().Unix())
 	if e != nil {
@@ -41,6 +42,7 @@ func (a *App) reconcile(ctx context.Context) {
 	a.db.ExecContext(ctx, "DELETE FROM sessions WHERE expires<?", time.Now().Unix())
 	a.db.ExecContext(ctx, "DELETE FROM oauth_states WHERE expires<?", time.Now().Unix())
 }
+
 func (a *App) syncBooking(ctx context.Context, id string) {
 	// Serialize Google writes and cancellation transitions within this single-process app.
 	a.syncMu.Lock()
@@ -76,6 +78,7 @@ func (a *App) syncBooking(ctx context.Context, id string) {
 		slog.Error("persist calendar result", "booking", id, "error", e)
 	}
 }
+
 func (a *App) cancelBooking(ctx context.Context, b Booking) error {
 	a.syncMu.Lock()
 	defer a.syncMu.Unlock()
