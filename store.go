@@ -10,19 +10,20 @@ import (
 )
 
 type User struct {
-	ID                                    int64
-	Email, Password, Name, Slug, Location string
-	Enabled                               bool
-	WriteCalendar                         sql.NullInt64
+	ID                          int64
+	Email, Password, Name, Slug string
+	Enabled                     bool
+	WriteCalendar               sql.NullInt64
+	DefaultLocation             sql.NullInt64
 }
 
-const userColumns = "id,email,password,name,slug,location,enabled,write_calendar"
+const userColumns = "id,email,password,name,slug,enabled,write_calendar,default_location"
 
 type scanner interface{ Scan(...any) error }
 
 func scanUser(s scanner) (User, error) {
 	var u User
-	err := s.Scan(&u.ID, &u.Email, &u.Password, &u.Name, &u.Slug, &u.Location, &u.Enabled, &u.WriteCalendar)
+	err := s.Scan(&u.ID, &u.Email, &u.Password, &u.Name, &u.Slug, &u.Enabled, &u.WriteCalendar, &u.DefaultLocation)
 	return u, err
 }
 func (a *App) userByID(ctx context.Context, id int64) (User, error) {
@@ -62,6 +63,38 @@ func (a *App) meetingTypes(ctx context.Context, uid int64, activeOnly bool) ([]M
 	return ts, rows.Err()
 }
 
+type Location struct {
+	ID                  int64
+	Kind, Label, Detail string
+	Default             bool
+}
+
+// Text is what a booking records as its location: the link or address, or the label alone.
+func (l Location) Text() string {
+	if l.Detail != "" {
+		return l.Detail
+	}
+	return l.Label
+}
+
+func (a *App) locations(ctx context.Context, u User) ([]Location, error) {
+	rows, e := a.db.QueryContext(ctx, "SELECT id,kind,label,detail FROM locations WHERE user_id=? ORDER BY id", u.ID)
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	var ls []Location
+	for rows.Next() {
+		var l Location
+		if e = rows.Scan(&l.ID, &l.Kind, &l.Label, &l.Detail); e != nil {
+			return nil, e
+		}
+		l.Default = u.DefaultLocation.Valid && l.ID == u.DefaultLocation.Int64
+		ls = append(ls, l)
+	}
+	return ls, rows.Err()
+}
+
 type Calendar struct {
 	ID, AccountID                  int64
 	GoogleID, Name, Role, Identity string
@@ -96,17 +129,18 @@ type Booking struct {
 	GuestName, GuestEmail                          string
 	Start, End, BlockStart, BlockEnd               int64
 	Title, Location, Timezone, ManageToken, Status string
+	Meet                                           bool
 	Created                                        int64
 	Attempts                                       int
 	NextAttempt                                    int64
 	LastError                                      string
 }
 
-const bookingColumns = "id,user_id,calendar_id,guest_name,guest_email,start,end,block_start,block_end,title,location,timezone,manage_token,status,created,attempts,next_attempt,last_error"
+const bookingColumns = "id,user_id,calendar_id,guest_name,guest_email,start,end,block_start,block_end,title,location,meet,timezone,manage_token,status,created,attempts,next_attempt,last_error"
 
 func scanBooking(s scanner) (Booking, error) {
 	var b Booking
-	e := s.Scan(&b.ID, &b.UserID, &b.CalendarID, &b.GuestName, &b.GuestEmail, &b.Start, &b.End, &b.BlockStart, &b.BlockEnd, &b.Title, &b.Location, &b.Timezone, &b.ManageToken, &b.Status, &b.Created, &b.Attempts, &b.NextAttempt, &b.LastError)
+	e := s.Scan(&b.ID, &b.UserID, &b.CalendarID, &b.GuestName, &b.GuestEmail, &b.Start, &b.End, &b.BlockStart, &b.BlockEnd, &b.Title, &b.Location, &b.Meet, &b.Timezone, &b.ManageToken, &b.Status, &b.Created, &b.Attempts, &b.NextAttempt, &b.LastError)
 	return b, e
 }
 func (a *App) getBooking(ctx context.Context, token string) (Booking, error) {
@@ -129,7 +163,7 @@ func (a *App) hostBookings(ctx context.Context, uid int64) ([]Booking, error) {
 	return bs, rows.Err()
 }
 func (a *App) reserve(ctx context.Context, b Booking) error {
-	_, e := a.db.ExecContext(ctx, `INSERT INTO bookings (id,user_id,calendar_id,guest_name,guest_email,start,end,block_start,block_end,title,location,timezone,manage_token,status,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?)`, b.ID, b.UserID, b.CalendarID, b.GuestName, b.GuestEmail, b.Start, b.End, b.BlockStart, b.BlockEnd, b.Title, b.Location, b.Timezone, b.ManageToken, b.Created)
+	_, e := a.db.ExecContext(ctx, `INSERT INTO bookings (id,user_id,calendar_id,guest_name,guest_email,start,end,block_start,block_end,title,location,meet,timezone,manage_token,status,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?)`, b.ID, b.UserID, b.CalendarID, b.GuestName, b.GuestEmail, b.Start, b.End, b.BlockStart, b.BlockEnd, b.Title, b.Location, b.Meet, b.Timezone, b.ManageToken, b.Created)
 	return e
 }
 

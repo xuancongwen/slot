@@ -420,6 +420,14 @@ legend {
   margin: 0;
 }
 
+.location-form {
+  margin: 16px 0 12px;
+}
+
+.subheading {
+  margin-top: 30px;
+}
+
 .grow {
   flex: 1;
 }

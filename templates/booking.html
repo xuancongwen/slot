@@ -7,12 +7,6 @@
       <span>◷</span>
       <div><strong>{{.MeetingType.Duration}} minutes</strong><small>Duration</small></div>
     </div>
-    {{if .User.Location}}
-    <div class="meeting-detail">
-      <span>↗</span>
-      <div><strong>{{.User.Location}}</strong><small>Meeting location</small></div>
-    </div>
-    {{end}}
     <div class="meeting-detail">
       <span>◎</span>
       <div><strong>{{.MeetingType.Timezone}}</strong><small>All times shown in the host’s timezone.</small></div>
@@ -37,6 +31,15 @@
       <label>Email address
         <input name="email" type="email" autocomplete="email" maxlength="254" required placeholder="you@example.com">
       </label>
+      <fieldset>
+        <legend>Where to meet</legend>
+        {{range .Locations}}
+        <label class="check-row"><input type="radio" name="location" value="{{.ID}}" {{if .Default}}checked{{end}}><span>{{.Label}}<small>{{if eq .Kind "meet"}}Link sent with the invitation{{else}}{{.Detail}}{{end}}</small></span></label>
+        {{end}}
+        <label>{{if .Locations}}Or somewhere else{{else}}Location{{end}} <span class="optional">optional</span>
+          <input name="custom_location" maxlength="500" placeholder="Phone number, address, or link">
+        </label>
+      </fieldset>
       <div class="honeypot" aria-hidden="true">
         <label>Leave this empty<input name="website" tabindex="-1" autocomplete="off"></label>
       </div>

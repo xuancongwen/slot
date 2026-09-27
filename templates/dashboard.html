@@ -52,14 +52,43 @@
           <label>Display name
             <input name="name" value="{{.User.Name}}" maxlength="100" required>
           </label>
-          <label>Where to meet
-            <input name="location" value="{{.User.Location}}" maxlength="500" placeholder="A meeting link, phone number, or address">
-            <span class="hint">Shown on the booking page and included in the invitation.</span>
-          </label>
           <label class="check-row"><input type="checkbox" name="enabled" {{if .User.Enabled}}checked{{end}}>Publish my booking page</label>
           <p class="hint">Connect Google and choose a destination calendar first. Changes apply to new bookings.</p>
           <button>Save profile</button>
         </form>
+
+        <h2 class="subheading">Where to meet</h2>
+        <p class="hint">Guests choose one of these when they book, or enter their own. The default is preselected.</p>
+        {{range .Locations}}
+        <div class="type-row">
+          <div>
+            <strong>{{.Label}}</strong>
+            <small>{{if eq .Kind "meet"}}A new Google Meet link for each booking{{else}}{{.Detail}}{{end}}</small>
+          </div>
+          {{if .Default}}<span class="pill">Default</span>{{else}}
+          <form method="post" action="/locations/{{.ID}}/default">
+            <input type="hidden" name="csrf" value="{{$.CSRF}}">
+            <button class="text-button">Make default</button>
+          </form>{{end}}
+          <form method="post" action="/locations/{{.ID}}/delete">
+            <input type="hidden" name="csrf" value="{{$.CSRF}}">
+            <button class="text-button danger">Remove</button>
+          </form>
+        </div>
+        {{end}}
+        <form method="post" action="/locations" class="inline-form location-form">
+          <input type="hidden" name="csrf" value="{{.CSRF}}">
+          <label>Name<input name="label" maxlength="60" required placeholder="Zoom"></label>
+          <label class="grow">Link or address <span class="optional">optional</span><input name="detail" maxlength="500" placeholder="https://zoom.us/j/…"></label>
+          <button class="secondary">Add</button>
+        </form>
+        {{if not (hasMeet .Locations)}}
+        <form method="post" action="/locations">
+          <input type="hidden" name="csrf" value="{{.CSRF}}">
+          <input type="hidden" name="kind" value="meet">
+          <button class="text-button">+ Offer Google Meet</button>
+        </form>
+        {{end}}
       </section>
     </div>
 
