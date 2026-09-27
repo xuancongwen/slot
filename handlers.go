@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/mail"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -117,6 +118,7 @@ func (a *App) adminHandler() http.Handler {
 	m.HandleFunc("POST /locations", a.authenticated(a.addLocation))
 	m.HandleFunc("POST /locations/{id}/default", a.authenticated(a.defaultLocation))
 	m.HandleFunc("POST /locations/{id}/delete", a.authenticated(a.deleteLocation))
+	m.HandleFunc("POST /locations/{id}/move", a.authenticated(a.moveLocation))
 	m.HandleFunc("POST /calendars", a.authenticated(a.saveCalendarSettings))
 	m.HandleFunc("POST /blocks", a.authenticated(a.blockDay))
 	m.HandleFunc("POST /blocks/delete", a.authenticated(a.unblockDay))
@@ -357,7 +359,7 @@ func (a *App) addLocation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var id int64
-	e := a.db.QueryRowContext(r.Context(), "INSERT INTO locations(user_id,kind,label,detail) VALUES(?,?,?,?) RETURNING id", u.ID, kind, label, detail).Scan(&id)
+	e := a.db.QueryRowContext(r.Context(), "INSERT INTO locations(user_id,kind,label,detail,position) VALUES(?,?,?,?,(SELECT coalesce(max(position),0)+1 FROM locations WHERE user_id=?)) RETURNING id", u.ID, kind, label, detail, u.ID).Scan(&id)
 	if e == nil && !u.DefaultLocation.Valid {
 		_, e = a.db.ExecContext(r.Context(), "UPDATE users SET default_location=? WHERE id=?", id, u.ID)
 	}
@@ -376,6 +378,44 @@ func (a *App) defaultLocation(w http.ResponseWriter, r *http.Request) {
 	}
 	http.Redirect(w, r, "/?notice=saved#profile", 303)
 }
+
+// moveLocation swaps a location with its neighbor, then renumbers the list so
+// positions stay distinct even for rows that predate ordering.
+func (a *App) moveLocation(w http.ResponseWriter, r *http.Request) {
+	u := currentUser(r)
+	ls, e := a.locations(r.Context(), u)
+	if e != nil {
+		a.internal(w, r, e)
+		return
+	}
+	i := slices.IndexFunc(ls, func(l Location) bool { return strconv.FormatInt(l.ID, 10) == r.PathValue("id") })
+	j := i + 1
+	if r.PostForm.Get("direction") == "up" {
+		j = i - 1
+	}
+	if i < 0 || j < 0 || j >= len(ls) {
+		http.Redirect(w, r, "/#profile", 303)
+		return
+	}
+	ls[i], ls[j] = ls[j], ls[i]
+	tx, e := a.db.BeginTx(r.Context(), nil)
+	if e != nil {
+		a.internal(w, r, e)
+		return
+	}
+	defer tx.Rollback()
+	for position, l := range ls {
+		if _, e = tx.ExecContext(r.Context(), "UPDATE locations SET position=? WHERE id=? AND user_id=?", position, l.ID, u.ID); e != nil {
+			a.internal(w, r, e)
+			return
+		}
+	}
+	if e = tx.Commit(); e != nil {
+		a.internal(w, r, e)
+		return
+	}
+	http.Redirect(w, r, "/#profile", 303)
+}
 func (a *App) deleteLocation(w http.ResponseWriter, r *http.Request) {
 	_, e := a.db.ExecContext(r.Context(), "DELETE FROM locations WHERE id=? AND user_id=?", r.PathValue("id"), currentUser(r).ID)
 	if e != nil {
@@ -383,6 +423,54 @@ func (a *App) deleteLocation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/?notice=saved#profile", 303)
+}
+
+// slugify turns a name like "Coffee chat (30 min)" into "coffee-chat-30-min".
+func slugify(name string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(name) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			if dash && b.Len() > 0 {
+				b.WriteByte('-')
+			}
+			b.WriteRune(r)
+			dash = false
+		} else {
+			dash = true
+		}
+	}
+	slug := strings.TrimRight(b.String()[:min(b.Len(), 40)], "-")
+	if slug == "" {
+		return "meeting"
+	}
+	return slug
+}
+
+// freeSlug appends -2, -3, … to t's generated slug until no other meeting type of u uses it.
+func (a *App) freeSlug(r *http.Request, u User, t MeetingType) (string, error) {
+	taken := map[string]bool{}
+	rows, e := a.db.QueryContext(r.Context(), "SELECT slug FROM meeting_types WHERE user_id=? AND id!=?", u.ID, t.ID)
+	if e != nil {
+		return "", e
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var slug string
+		if e = rows.Scan(&slug); e != nil {
+			return "", e
+		}
+		taken[slug] = true
+	}
+	if e = rows.Err(); e != nil {
+		return "", e
+	}
+	slug := t.Slug
+	for n := 2; taken[slug]; n++ {
+		suffix := fmt.Sprintf("-%d", n)
+		slug = strings.TrimRight(t.Slug[:min(len(t.Slug), 40-len(suffix))], "-") + suffix
+	}
+	return slug, nil
 }
 
 // ownedMeetingType returns the zero MeetingType with no error for /types/new.
@@ -414,6 +502,9 @@ func (a *App) saveMeetingType(w http.ResponseWriter, r *http.Request) {
 	var e1, e2, e3, e4, e5, e6 error
 	t.Name = strings.TrimSpace(f.Get("name"))
 	t.Slug = strings.ToLower(strings.TrimSpace(f.Get("slug")))
+	if t.Slug == "" {
+		t.Slug = slugify(t.Name) // Validated below; made unique once the rest of the form passes.
+	}
 	t.Timezone = strings.TrimSpace(f.Get("timezone"))
 	t.StartMin, e1 = parseMinutes(f.Get("start"))
 	t.EndMin, e2 = parseMinutes(f.Get("end"))
@@ -440,6 +531,12 @@ func (a *App) saveMeetingType(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := currentUser(r)
+	if f.Get("slug") == "" {
+		if t.Slug, e = a.freeSlug(r, u, t); e != nil {
+			a.internal(w, r, e)
+			return
+		}
+	}
 	if t.ID == 0 {
 		_, e = a.db.ExecContext(r.Context(), `INSERT INTO meeting_types(user_id,slug,name,timezone,days,start_min,end_min,duration,buffer,notice,horizon,active) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, u.ID, t.Slug, t.Name, t.Timezone, t.Days, t.StartMin, t.EndMin, t.Duration, t.Buffer, t.Notice, t.Horizon, t.Active)
 	} else {

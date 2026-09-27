@@ -8,11 +8,11 @@
       <h2>Details</h2>
       <div class="form-grid">
         <label>Name
-          <input name="name" value="{{.MeetingType.Name}}" maxlength="100" required placeholder="30 minute chat">
+          <input name="name" value="{{.MeetingType.Name}}" maxlength="100" required placeholder="30 minute chat" data-slug-source>
         </label>
-        <label>URL
-          <input name="slug" value="{{.MeetingType.Slug}}" pattern="[a-z0-9][a-z0-9-]{0,39}" maxlength="40" required placeholder="chat">
-          <span class="hint">{{.BookingURL}}/{{if .MeetingType.Slug}}{{.MeetingType.Slug}}{{else}}your-type{{end}}</span>
+        <label>URL <span class="optional">made from the name if blank</span>
+          <input name="slug" value="{{.MeetingType.Slug}}" pattern="[a-z0-9][a-z0-9-]{0,39}" maxlength="40" placeholder="30-minute-chat" {{if not .MeetingType.ID}}data-slug-target{{end}}>
+          <span class="hint">{{.BookingURL}}/<span data-slug-preview>{{if .MeetingType.Slug}}{{.MeetingType.Slug}}{{else}}…{{end}}</span></span>
         </label>
         <label>Length <span class="optional">minutes</span>
           <input type="number" name="duration" min="5" max="240" value="{{.MeetingType.Duration}}" required>

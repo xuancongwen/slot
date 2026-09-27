@@ -1,6 +1,6 @@
 # Slot
 
-A small Google Calendar booking app for a home lab. One Go process, one SQLite database, two HTTP listeners. Server-rendered HTML, local CSS, and about 1 KB of optional JavaScript. No Node runtime, Redis, mail server, or external frontend assets.
+A small Google Calendar booking app for a home lab. One Go process, one SQLite database, two HTTP listeners. Server-rendered HTML, local CSS, and about 2 KB of optional JavaScript. No Node runtime, Redis, mail server, or external frontend assets.
 
 > **Status: not yet functional.** Slot is a work in progress and is not ready for use. The features below describe the intended first version, not a working release.
 
@@ -117,7 +117,7 @@ Google Calendar does not offer an atomic “insert only if still free” operati
 
 ## Data and backups
 
-Development builds do not migrate the database. If Slot refuses to start with a schema version error after an upgrade, move the data directory aside and start fresh.
+Databases from schema version 4 onward are upgraded in place at startup. Older development databases cannot be; if Slot refuses to start with a schema version error, move the data directory aside and start fresh.
 
 The data directory contains the SQLite database, WAL/SHM files while running, and `secret.key`. The key encrypts Google tokens and signs booking forms. **Back up the key with the database** and keep it private. Losing it makes saved Google credentials unusable. The app refuses to create a replacement key next to an existing database.
 
