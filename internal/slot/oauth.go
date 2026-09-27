@@ -87,7 +87,7 @@ func (a *App) oauthCallback(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/?notice=connected", http.StatusSeeOther)
+	http.Redirect(w, r, a.adminURL("/?notice=connected"), http.StatusSeeOther)
 }
 
 func saveCalendars(ctx context.Context, tx *sql.Tx, account int64, cs []remoteCalendar) error {
@@ -131,5 +131,5 @@ func (a *App) refreshCalendars(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/?notice=refreshed", http.StatusSeeOther)
+	http.Redirect(w, r, a.adminURL("/?notice=refreshed"), http.StatusSeeOther)
 }

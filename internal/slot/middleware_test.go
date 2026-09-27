@@ -62,3 +62,57 @@ func TestReferrerPolicyKeepsSameOriginPostsValid(t *testing.T) {
 		})
 	}
 }
+
+func TestAdminUnderPublicOrigin(t *testing.T) {
+	a, _ := testApp(t)
+	h := a.siteHandler()
+	if w := getRequest(h, "/admin"); w.Code != 301 || w.Header().Get("Location") != "/admin/" {
+		t.Fatalf("/admin: %d %s", w.Code, w.Header().Get("Location"))
+	}
+	if w := getRequest(h, "/admin/"); w.Code != 303 || w.Header().Get("Location") != "/admin/login" {
+		t.Fatalf("signed-out dashboard: %d %s", w.Code, w.Header().Get("Location"))
+	}
+	if body := getRequest(h, "/admin/register").Body.String(); !strings.Contains(body, `action="/admin/register"`) {
+		t.Fatal("registration form should post under /admin")
+	}
+	form := url.Values{"name": {"Sam"}, "slug": {"sam"}, "email": {"sam@example.com"}, "password": {"a long test password"}}
+	w := formRequest(h, "/admin/register", form, true)
+	if w.Code != 303 || w.Header().Get("Location") != "/admin/" {
+		t.Fatalf("register: %d %s", w.Code, w.Header().Get("Location"))
+	}
+	var session *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "slot_session" {
+			session = c
+		}
+	}
+	if session == nil || session.Path != "/admin" {
+		t.Fatalf("session cookie should be scoped to /admin: %+v", session)
+	}
+	if body := getRequest(h, "/admin/", session).Body.String(); !strings.Contains(body, `action="/admin/settings"`) || !strings.Contains(body, `href="/admin/types/new"`) {
+		t.Fatal("dashboard links should stay under /admin")
+	}
+	if w := getRequest(h, "/"); w.Code != 200 || !strings.Contains(w.Body.String(), "Open the booking link") {
+		t.Fatalf("public root: %d", w.Code)
+	}
+	if a.oauth.RedirectURL != "http://localhost:8080/admin/oauth/callback" {
+		t.Fatalf("OAuth callback %s", a.oauth.RedirectURL)
+	}
+}
+
+func TestAdminHostedSeparately(t *testing.T) {
+	a, e := New(Config{DataDir: t.TempDir(), PublicURL: "http://localhost:8080", AdminURL: "http://localhost:8081", HostAdminSeparately: true})
+	if e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(func() { a.Close() })
+	if w := getRequest(a.siteHandler(), "/admin/login"); w.Code != 404 {
+		t.Fatalf("admin reachable on the public listener: %d", w.Code)
+	}
+	if body := getRequest(a.adminHandler(), "/login").Body.String(); !strings.Contains(body, `action="/login"`) {
+		t.Fatal("separate admin should serve its pages at the root")
+	}
+	if a.oauth.RedirectURL != "http://localhost:8081/oauth/callback" {
+		t.Fatalf("OAuth callback %s", a.oauth.RedirectURL)
+	}
+}

@@ -58,7 +58,7 @@ func (a *App) cancelAdmin(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/?notice=cancelled", http.StatusSeeOther)
+	http.Redirect(w, r, a.adminURL("/?notice=cancelled"), http.StatusSeeOther)
 }
 
 func (a *App) retryAdmin(w http.ResponseWriter, r *http.Request) {
@@ -68,7 +68,7 @@ func (a *App) retryAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.syncBooking(r.Context(), b.ID)
-	http.Redirect(w, r, "/?notice=retry", http.StatusSeeOther)
+	http.Redirect(w, r, a.adminURL("/?notice=retry"), http.StatusSeeOther)
 }
 
 func icsEscape(s string) string {

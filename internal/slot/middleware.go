@@ -65,7 +65,11 @@ func (a *App) cookie(w http.ResponseWriter, name, value string, ttl int, admin b
 	if admin {
 		origin = a.cfg.AdminURL
 	}
-	http.SetCookie(w, &http.Cookie{Name: name, Value: value, Path: "/", HttpOnly: true, Secure: strings.HasPrefix(origin, "https://"), SameSite: http.SameSiteLaxMode, MaxAge: ttl})
+	path := "/"
+	if admin && a.adminPath != "" {
+		path = a.adminPath // Keep the admin session off the booking pages.
+	}
+	http.SetCookie(w, &http.Cookie{Name: name, Value: value, Path: path, HttpOnly: true, Secure: strings.HasPrefix(origin, "https://"), SameSite: http.SameSiteLaxMode, MaxAge: ttl})
 }
 
 func (a *App) csrfToken(w http.ResponseWriter, r *http.Request, admin bool) string {

@@ -49,10 +49,17 @@ type App struct {
 	limit      *Limiter
 	syncMu     sync.Mutex
 	authSlots  chan struct{}
+	// adminPath prefixes every admin route: "/admin", or "" when the admin has its own origin.
+	adminPath string
 }
 
 // New opens (creating if needed) the data directory, its encryption key, and database.
 func New(c Config) (*App, error) {
+	adminPath := ""
+	if !c.HostAdminSeparately {
+		adminPath = "/admin"
+		c.AdminURL = c.PublicURL
+	}
 	if err := os.MkdirAll(c.DataDir, 0700); err != nil {
 		return nil, err
 	}
@@ -133,6 +140,8 @@ func New(c Config) (*App, error) {
 			}
 		}
 		return false
+	}, "admin": func(path string) string {
+		return adminPath + path
 	}, "utcOffset": func(tz string) string {
 		loc, e := time.LoadLocation(tz)
 		if e != nil {
@@ -145,11 +154,11 @@ func New(c Config) (*App, error) {
 		return nil, err
 	}
 	zones, _ := assets.ReadFile("timezones.txt")
-	a := &App{db: db, cfg: c, aead: aead, templates: t, timezones: strings.Fields(string(zones)), http: &http.Client{Timeout: 15 * time.Second}, limit: newLimiter(), authSlots: make(chan struct{}, 4)}
+	a := &App{db: db, cfg: c, aead: aead, templates: t, timezones: strings.Fields(string(zones)), http: &http.Client{Timeout: 15 * time.Second}, limit: newLimiter(), authSlots: make(chan struct{}, 4), adminPath: adminPath}
 	mac := hmac.New(sha256.New, key)
 	mac.Write([]byte("slot-ticket-signing-key-v1"))
 	a.signingKey = mac.Sum(nil)
-	a.oauth = &oauth2.Config{ClientID: c.GoogleClientID, ClientSecret: c.GoogleClientSecret, RedirectURL: c.AdminURL + "/oauth/callback", Endpoint: oauth2.Endpoint{AuthURL: "https://accounts.google.com/o/oauth2/v2/auth", TokenURL: "https://oauth2.googleapis.com/token"}, Scopes: []string{"https://www.googleapis.com/auth/calendar.calendarlist.readonly", "https://www.googleapis.com/auth/calendar.events.freebusy", "https://www.googleapis.com/auth/calendar.events"}}
+	a.oauth = &oauth2.Config{ClientID: c.GoogleClientID, ClientSecret: c.GoogleClientSecret, RedirectURL: c.AdminURL + adminPath + "/oauth/callback", Endpoint: oauth2.Endpoint{AuthURL: "https://accounts.google.com/o/oauth2/v2/auth", TokenURL: "https://oauth2.googleapis.com/token"}, Scopes: []string{"https://www.googleapis.com/auth/calendar.calendarlist.readonly", "https://www.googleapis.com/auth/calendar.events.freebusy", "https://www.googleapis.com/auth/calendar.events"}}
 	a.google = &Google{app: a, baseURL: "https://www.googleapis.com/calendar/v3"}
 	return a, nil
 }
@@ -162,39 +171,46 @@ func (a *App) Close() error { return a.db.Close() }
 func (a *App) Run(ctx context.Context) error {
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
-	public := server(a.cfg.PublicAddr, a.publicHandler())
-	admin := server(a.cfg.AdminAddr, a.adminHandler())
-	pl, err := net.Listen("tcp", a.cfg.PublicAddr)
-	if err != nil {
-		return fmt.Errorf("public listener: %w", err)
+	type listener struct {
+		name, addr string
+		handler    http.Handler
 	}
-	al, err := net.Listen("tcp", a.cfg.AdminAddr)
-	if err != nil {
-		pl.Close()
-		return fmt.Errorf("admin listener: %w", err)
+	listeners := []listener{{"public", a.cfg.PublicAddr, a.siteHandler()}}
+	if a.cfg.HostAdminSeparately {
+		listeners = append(listeners, listener{"admin", a.cfg.AdminAddr, a.adminHandler()})
 	}
-	slog.Info("Slot ready", "public", a.cfg.PublicURL, "admin", a.cfg.AdminURL)
+	var servers []*http.Server
 	var wg sync.WaitGroup
-	for _, pair := range []struct {
-		s *http.Server
-		l net.Listener
-	}{{public, pl}, {admin, al}} {
+	for _, l := range listeners {
+		ln, err := net.Listen("tcp", l.addr)
+		if err != nil {
+			stop()
+			for _, s := range servers {
+				s.Close()
+			}
+			wg.Wait()
+			return fmt.Errorf("%s listener: %w", l.name, err)
+		}
+		s := server(l.addr, l.handler)
+		servers = append(servers, s)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if e := pair.s.Serve(pair.l); e != nil && !errors.Is(e, http.ErrServerClosed) {
-				slog.Error("server", "error", e)
+			if e := s.Serve(ln); e != nil && !errors.Is(e, http.ErrServerClosed) {
+				slog.Error("server", "listener", l.name, "error", e)
 				stop()
 			}
 		}()
 	}
+	slog.Info("Slot ready", "public", a.cfg.PublicURL, "admin", a.cfg.AdminURL+a.adminPath+"/")
 	wg.Add(1)
 	go func() { defer wg.Done(); a.worker(ctx) }()
 	<-ctx.Done()
 	shutdown, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	public.Shutdown(shutdown)
-	admin.Shutdown(shutdown)
+	for _, s := range servers {
+		s.Shutdown(shutdown)
+	}
 	wg.Wait()
 	return nil
 }

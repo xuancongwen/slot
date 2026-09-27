@@ -6,17 +6,17 @@ A small Google Calendar booking app for a home lab. One Go process, one SQLite d
 
 ## First version
 
-- Multiple independent scheduling users, registered through the admin port.
+- Multiple independent scheduling users, registered through the admin at `/admin`.
 - Multiple Google accounts per user, with multiple calendars per account.
 - Combined free/busy checks across selected calendars; one destination calendar for bookings.
-- A public booking link for each user: `/b/your-name`, listing their meeting types at `/b/your-name/type`, or showing the calendar directly when there is only one. No public user directory. With `SINGLE_HOST` set, that host's page is the site root instead.
+- A public booking link for each user: `/b/your-name`, listing their meeting types at `/b/your-name/type`, or showing the calendar directly when there is only one. No public user directory. With `SINGLE_HOST_URL_NAME` set, that host's page is the site root instead.
 - Multiple meeting types per user, each with its own length, IANA timezone, weekly availability, buffers, minimum notice, and booking horizon. A per-type timezone lets you publish a schedule for a trip alongside your usual one.
 - Full days off per user.
 - Locations in each user's profile: Google Meet (a fresh link per booking, created by Google) plus any links or addresses, such as a Zoom room. Guests pick one, the default preselected, or enter their own.
 - Pause/publish controls, upcoming and past booking list, cancellation, and password changes.
 - Google invitations and an optional `.ics` download.
 - Durable Google write retries, including after a restart. Uncertain bookings continue reserving the slot.
-- Separate public/admin route tables. Registration and account operations do not exist on the public listener.
+- Separate public/admin route tables, each with its own middleware and CSRF cookie. The admin is served under `/admin`, or on its own origin and listener with `HOST_ADMIN_SEPARATELY=true`.
 
 The app starts without Google credentials so you can create an account and explore the admin UI. To publish a working booking page, connect Google and choose a destination calendar.
 
@@ -30,11 +30,11 @@ make run
 
 `make build` builds `bin/slot` without running it.
 
-- Admin: <http://localhost:8081>
 - Public: <http://localhost:8080>
+- Admin: <http://localhost:8080/admin/>
 - Data: `./data/slot.db` and `./data/secret.key`
 
-Create your host account on the admin port. Configure Google below, restart, connect an account, save calendar selections, edit your meeting type's timezone and hours, then publish the page.
+Create your host account in the admin. Configure Google below, restart, connect an account, save calendar selections, edit your meeting type's timezone and hours, then publish the page.
 
 ## Run with Docker Compose
 
@@ -44,7 +44,7 @@ cp .env.example .env
 make up
 ```
 
-The default published ports bind to host loopback. A reverse proxy running on the Docker host can forward to them. For a proxy on another machine, change the host bindings to a specific LAN address and restrict access with your firewall. For a proxy in another container, attach it to the same Docker network and route to `slot:8080` and `slot:8081`.
+The default published ports bind to host loopback. A reverse proxy running on the Docker host can forward to them. For a proxy on another machine, change the host bindings to a specific LAN address and restrict access with your firewall. For a proxy in another container, attach it to the same Docker network and route to `slot:8080` (and `slot:8081` if the admin is hosted separately).
 
 The container runs as a non-root user, with a read-only root filesystem and a writable named volume for `/data`. There is no shell in the runtime image. To move architectures, build the image on that host, or use Docker Buildx for `linux/amd64` or `linux/arm64`.
 
@@ -61,13 +61,13 @@ Container to create (Slot uses about 25 MB of memory; the rest is Debian and hea
 | CPU | 1 core. Each sign-in costs one PBKDF2 hash (about 0.1–0.3 s of a core); 2 cores if several hosts sign in at once. |
 | Memory | 256 MB, plus 256 MB swap |
 | Disk | 4 GB |
-| Network | A fixed address (static or DHCP reservation) that your reverse proxy can reach on 8080; keep 8081 to your LAN or VPN |
+| Network | A fixed address (static or DHCP reservation) that your reverse proxy can reach on 8080 |
 
 Then, from your checkout:
 
 ```sh
 scp deploy/setup.sh root@slot.lan: && ssh root@slot.lan ./setup.sh
-ssh root@slot.lan editor /etc/slot/slot.env   # origins, Google OAuth client, optional SINGLE_HOST
+ssh root@slot.lan editor /etc/slot/slot.env   # origin, Google OAuth client, optional SINGLE_HOST_URL_NAME
 deploy/deploy.sh root@slot.lan
 ```
 
@@ -75,31 +75,31 @@ deploy/deploy.sh root@slot.lan
 
 ## Single-host mode
 
-For a personal install, set `SINGLE_HOST` to your booking URL name and your booking page becomes the site root: guests visit `https://book.example.com/` rather than `https://book.example.com/b/sam`.
+For a personal install, set `SINGLE_HOST_URL_NAME` to your booking URL name and your booking page becomes the site root: guests visit `https://book.example.com/` rather than `https://book.example.com/b/sam`.
 
 ```sh
-SINGLE_HOST=sam
-REGISTRATION_CODE=choose-a-long-code   # required with SINGLE_HOST
+SINGLE_HOST_URL_NAME=sam
+REGISTRATION_CODE=choose-a-long-code   # required with SINGLE_HOST_URL_NAME
 ```
 
-- **Registration happens once.** The sign-up form fills in `sam` as the URL name and accepts no other, and the registration code is required. As soon as an account exists, registration closes and the sign-in page stops offering it. Without a code, whoever reached the admin port first would own the server, so Slot refuses to start.
+- **Registration happens once.** The sign-up form fills in `sam` as the URL name and accepts no other, and the registration code is required. As soon as an account exists, registration closes and the sign-in page stops offering it. Without a code, whoever reached the admin first would own the server, so Slot refuses to start.
 - **The root is your page.** With one active meeting type, `/` shows its calendar directly, and choosing a date or time stays on `/`. With several, `/` lists them, and each opens at its usual `/b/sam/<type>` URL. `/b/sam` keeps working.
 - **Before you publish,** `/` shows the generic landing page.
 
 Behind a reverse proxy or tunnel, route the public hostname's root straight to the public listener (`:8080`); no path rewrite is needed. Set `PUBLIC_URL` to that hostname so form origin checks and invitation links match.
 
-Unset `SINGLE_HOST` to return to the multi-host layout: `/` becomes the landing page again, each host lives at `/b/<name>`, and `REGISTRATION_OPEN` and `REGISTRATION_CODE` alone decide who may register. Setting `SINGLE_HOST` on a server that already has several hosts serves the named host at the root and closes registration; the other hosts' `/b/<name>` pages keep working.
+Unset `SINGLE_HOST_URL_NAME` to return to the multi-host layout: `/` becomes the landing page again, each host lives at `/b/<name>`, and `REGISTRATION_OPEN` and `REGISTRATION_CODE` alone decide who may register. Setting `SINGLE_HOST_URL_NAME` on a server that already has several hosts serves the named host at the root and closes registration; the other hosts' `/b/<name>` pages keep working.
 
 ## Google setup
 
 1. Create or choose a Google Cloud project and enable **Google Calendar API**.
 2. Configure the OAuth consent screen. For a private trial, use External / Testing and add each Google account you want to connect as a test user.
 3. Create an OAuth client of type **Web application**.
-4. Add an authorized redirect URI matching your admin origin exactly:
-   - Local: `http://localhost:8081/oauth/callback`
-   - Deployed example: `https://slot-admin.example.com/oauth/callback`
+4. Add an authorized redirect URI. It is `PUBLIC_URL/admin/oauth/callback`, or `ADMIN_URL/oauth/callback` with `HOST_ADMIN_SEPARATELY=true`:
+   - Local: `http://localhost:8080/admin/oauth/callback`
+   - Deployed example: `https://book.example.com/admin/oauth/callback`
 5. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. These are server configuration values, not the host’s Google password. Restart the app.
-6. Sign in on the admin port and select **Connect or reconnect Google**. Approve the requested Calendar permissions. Repeat for additional Google accounts.
+6. Sign in to the admin and select **Connect or reconnect Google**. Approve the requested Calendar permissions. Repeat for additional Google accounts.
 7. Choose calendars under **Check for conflicts**, choose a writable destination, and save.
 
 The redirect returns through the user's browser. Google does not need to reach your private admin server directly, but the browser must be able to reach it. Google's redirect URI rules still apply; localhost HTTP is permitted for local development, while a deployed setup should use a domain and HTTPS rather than a private IP redirect.
@@ -115,20 +115,21 @@ References: [Google web-server OAuth](https://developers.google.com/identity/pro
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PUBLIC_ADDR` | `:8080` | Public listener bind address; Docker sets `:8080`. |
-| `ADMIN_ADDR` | `127.0.0.1:8081` | Admin listener bind address; Docker sets `:8081` inside the container. |
+| `HOST_ADMIN_SEPARATELY` | `false` | `true` serves the admin on its own listener (`ADMIN_ADDR`) and origin (`ADMIN_URL`) instead of under `PUBLIC_URL/admin`. |
+| `ADMIN_ADDR` | `127.0.0.1:8081` | Separate admin only: listener bind address; Docker sets `:8081` inside the container. |
 | `PUBLIC_URL` | `http://localhost:8080` | Canonical public origin; used in booking links and Google invitations. |
-| `ADMIN_URL` | `http://localhost:8081` | Canonical admin origin; used for OAuth and form origin checks. |
+| `ADMIN_URL` | `http://localhost:8081` | Separate admin only: canonical admin origin, used for OAuth and form origin checks. Setting it without `HOST_ADMIN_SEPARATELY=true` is an error. |
 | `DATA_DIR` | `data` | Persistent database/key directory; Docker uses `/data`. |
 | `GOOGLE_CLIENT_ID` | unset | Google OAuth Web application client ID. |
 | `GOOGLE_CLIENT_SECRET` | unset | Google OAuth client secret. |
 | `REGISTRATION_OPEN` | `true` | Set to `false` to disable host registration. Existing users can still sign in. |
-| `REGISTRATION_CODE` | unset | Optional shared code required to register a host. Required with `SINGLE_HOST`. |
-| `SINGLE_HOST` | unset | URL name of the only host, e.g. `sam`. Their booking page is served at the public root, and registration accepts only that name, once. |
-| `PUBLIC_PORT`, `ADMIN_PORT` | `8080`, `8081` | Compose host-port mappings only. Update origins and Google redirects if changed. |
+| `REGISTRATION_CODE` | unset | Optional shared code required to register a host. Required with `SINGLE_HOST_URL_NAME`. |
+| `SINGLE_HOST_URL_NAME` | unset | URL name of the only host, e.g. `sam`. Their booking page is served at the public root, and registration accepts only that name, once. |
+| `PUBLIC_PORT`, `ADMIN_PORT` | `8080`, `8081` | Compose host-port mappings only; `ADMIN_PORT` matters only for a separate admin. Update origins and Google redirects if changed. |
 
 The standalone binary does **not** read `.env`. Export variables in the shell or use your service manager's environment file. Compose reads `.env` for the interpolation shown in `compose.yaml`.
 
-Public and admin origins must differ and cannot include URL paths. Use a dedicated public domain and private admin domain with HTTPS in deployment. Keep the admin listener on your LAN/VPN or localhost. A different port is routing separation, not a network firewall. Registration is intended for trusted host users with access to the admin interface; accounts have no privileged cross-user administrator role.
+Origins cannot include URL paths. By default the admin shares the public origin under `/admin`, protected by its sign-in and a session cookie scoped to `/admin`. To keep it off the public internet entirely, set `HOST_ADMIN_SEPARATELY=true`, give it a private domain with HTTPS, and keep its listener on your LAN/VPN or localhost; a different port is routing separation, not a network firewall. Registration is intended for trusted host users with access to the admin interface; accounts have no privileged cross-user administrator role.
 
 The app does not trust `X-Forwarded-For`. Its in-process rate limit therefore groups clients behind a reverse proxy under that proxy's IP. For higher public traffic, enforce per-client limits at the proxy and adjust the application limiter deliberately.
 
@@ -176,7 +177,7 @@ make bench   # slot-generation benchmark
 make fmt     # format the code
 ```
 
-Tests cover concurrent reservations, shared destination conflicts, DST gaps/repeated hours, host isolation, public/admin route separation, CSRF rejection, signed ticket integrity, registration/login, single-host registration and root page, restart recovery, encrypted token refresh, Google API batching/errors, idempotent insertion, cancellation retries, and the end-to-end HTTP booking flow with a fake Calendar service.
+Tests cover concurrent reservations, shared destination conflicts, DST gaps/repeated hours, host isolation, public/admin route separation (combined and separate), configuration validation, CSRF rejection, signed ticket integrity, registration/login, single-host registration and root page, restart recovery, encrypted token refresh, Google API batching/errors, idempotent insertion, cancellation retries, and the end-to-end HTTP booking flow with a fake Calendar service.
 
 The real Google consent/invitation flow requires your OAuth client and Google accounts. Automated tests use local HTTP doubles; they do not connect to anyone's calendar.
 

@@ -28,7 +28,7 @@ func (a *App) addLocation(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/?notice=saved#profile", http.StatusSeeOther)
+	http.Redirect(w, r, a.adminURL("/?notice=saved#profile"), http.StatusSeeOther)
 }
 
 func (a *App) defaultLocation(w http.ResponseWriter, r *http.Request) {
@@ -38,7 +38,7 @@ func (a *App) defaultLocation(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/?notice=saved#profile", http.StatusSeeOther)
+	http.Redirect(w, r, a.adminURL("/?notice=saved#profile"), http.StatusSeeOther)
 }
 
 // moveLocation swaps a location with its neighbor, then renumbers the list so
@@ -56,7 +56,7 @@ func (a *App) moveLocation(w http.ResponseWriter, r *http.Request) {
 		j = i - 1
 	}
 	if i < 0 || j < 0 || j >= len(ls) {
-		http.Redirect(w, r, "/#profile", http.StatusSeeOther)
+		http.Redirect(w, r, a.adminURL("/#profile"), http.StatusSeeOther)
 		return
 	}
 	ls[i], ls[j] = ls[j], ls[i]
@@ -72,7 +72,7 @@ func (a *App) moveLocation(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/#profile", http.StatusSeeOther)
+	http.Redirect(w, r, a.adminURL("/#profile"), http.StatusSeeOther)
 }
 
 func (a *App) deleteLocation(w http.ResponseWriter, r *http.Request) {
@@ -81,7 +81,7 @@ func (a *App) deleteLocation(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/?notice=saved#profile", http.StatusSeeOther)
+	http.Redirect(w, r, a.adminURL("/?notice=saved#profile"), http.StatusSeeOther)
 }
 
 // chosenLocation resolves the guest's pick. Their own text wins over the selected option,

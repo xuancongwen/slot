@@ -1,9 +1,9 @@
 {{define "meeting_type"}}{{template "head" .}}
 <main class="workspace narrow-workspace">
-  <a class="back-link" href="/">← Back to dashboard</a>
+  <a class="back-link" href="{{admin "/"}}">← Back to dashboard</a>
   <h1>{{.Title}}</h1>
   <section class="card">
-    <form method="post" action="{{if .MeetingType.ID}}/types/{{.MeetingType.ID}}{{else}}/types{{end}}">
+    <form method="post" action="{{if .MeetingType.ID}}{{admin "/types/"}}{{.MeetingType.ID}}{{else}}{{admin "/types"}}{{end}}">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <h2>Details</h2>
       <div class="form-grid">
@@ -56,7 +56,7 @@
       <button>Save meeting type</button>
     </form>
     {{if .MeetingType.ID}}
-    <form method="post" action="/types/{{.MeetingType.ID}}/delete" data-confirm="Delete this meeting type? Existing bookings stay in place.">
+    <form method="post" action="{{admin "/types/"}}{{.MeetingType.ID}}/delete" data-confirm="Delete this meeting type? Existing bookings stay in place.">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <button class="text-button danger">Delete meeting type</button>
     </form>

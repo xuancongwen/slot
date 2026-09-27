@@ -7,12 +7,13 @@ services:
       - "127.0.0.1:${ADMIN_PORT:-8081}:8081"
     environment:
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
-      ADMIN_URL: ${ADMIN_URL:-http://localhost:8081}
+      HOST_ADMIN_SEPARATELY: ${HOST_ADMIN_SEPARATELY:-false}
+      ADMIN_URL: ${ADMIN_URL:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       REGISTRATION_OPEN: ${REGISTRATION_OPEN:-true}
       REGISTRATION_CODE: ${REGISTRATION_CODE:-}
-      SINGLE_HOST: ${SINGLE_HOST:-}
+      SINGLE_HOST_URL_NAME: ${SINGLE_HOST_URL_NAME:-}
     volumes:
       - slot-data:/data
     read_only: true

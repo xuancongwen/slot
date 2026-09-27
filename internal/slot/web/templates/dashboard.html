@@ -2,7 +2,7 @@
 <main class="workspace">
   <div class="page-heading">
     <h1>{{.User.Name}}</h1>
-    <form method="post" action="/logout">
+    <form method="post" action="{{admin "/logout"}}">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <button class="secondary small danger-button">Sign out</button>
     </form>
@@ -28,7 +28,7 @@
       <section class="card" id="meeting-types">
         <div class="card-heading">
           <h2>Meeting types</h2>
-          <a class="button secondary small" href="/types/new">+ New type</a>
+          <a class="button secondary small" href="{{admin "/types/new"}}">+ New type</a>
         </div>
         {{range .MeetingTypes}}
         <div class="type-row">
@@ -38,7 +38,7 @@
             <a href="{{$.BookingURL}}/{{.Slug}}" target="_blank" rel="noopener">{{$.BookingURL}}/{{.Slug}} ↗</a>
           </div>
           <span class="pill">{{if .Active}}On{{else}}Off{{end}}</span>
-          <a class="text-button" href="/types/{{.ID}}">Edit</a>
+          <a class="text-button" href="{{admin "/types/"}}{{.ID}}">Edit</a>
         </div>
         {{else}}
         <div class="empty compact"><p>No meeting types yet. Guests can’t book until you add one.</p></div>
@@ -47,7 +47,7 @@
 
       <section class="card" id="profile">
         <h2>Profile</h2>
-        <form method="post" action="/settings">
+        <form method="post" action="{{admin "/settings"}}">
           <input type="hidden" name="csrf" value="{{.CSRF}}">
           <label>Display name
             <input name="name" value="{{.User.Name}}" maxlength="100" required>
@@ -62,32 +62,32 @@
         {{range $i, $l := .Locations}}
         <div class="type-row">
           <div class="reorder">
-            {{if gt $i 0}}<form method="post" action="/locations/{{.ID}}/move"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="direction" value="up"><button class="text-button" aria-label="Move {{.Label}} up">↑</button></form>{{end}}
-            {{if lt $i (lastIndex $.Locations)}}<form method="post" action="/locations/{{.ID}}/move"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="direction" value="down"><button class="text-button" aria-label="Move {{.Label}} down">↓</button></form>{{end}}
+            {{if gt $i 0}}<form method="post" action="{{admin "/locations/"}}{{.ID}}/move"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="direction" value="up"><button class="text-button" aria-label="Move {{.Label}} up">↑</button></form>{{end}}
+            {{if lt $i (lastIndex $.Locations)}}<form method="post" action="{{admin "/locations/"}}{{.ID}}/move"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="direction" value="down"><button class="text-button" aria-label="Move {{.Label}} down">↓</button></form>{{end}}
           </div>
           <div>
             <strong>{{.Label}}</strong>
             <small>{{if eq .Kind "meet"}}A new Google Meet link for each booking{{else}}{{.Detail}}{{end}}</small>
           </div>
           {{if .Default}}<span class="pill">Default</span>{{else}}
-          <form method="post" action="/locations/{{.ID}}/default">
+          <form method="post" action="{{admin "/locations/"}}{{.ID}}/default">
             <input type="hidden" name="csrf" value="{{$.CSRF}}">
             <button class="text-button">Make default</button>
           </form>{{end}}
-          <form method="post" action="/locations/{{.ID}}/delete">
+          <form method="post" action="{{admin "/locations/"}}{{.ID}}/delete">
             <input type="hidden" name="csrf" value="{{$.CSRF}}">
             <button class="text-button danger">Remove</button>
           </form>
         </div>
         {{end}}
-        <form method="post" action="/locations" class="inline-form location-form">
+        <form method="post" action="{{admin "/locations"}}" class="inline-form location-form">
           <input type="hidden" name="csrf" value="{{.CSRF}}">
           <label>Name<input name="label" maxlength="60" required placeholder="Zoom"></label>
           <label class="grow">Link or address <span class="optional">optional</span><input name="detail" maxlength="500" placeholder="https://zoom.us/j/…"></label>
           <button class="secondary">Add</button>
         </form>
         {{if not (hasMeet .Locations)}}
-        <form method="post" action="/locations">
+        <form method="post" action="{{admin "/locations"}}">
           <input type="hidden" name="csrf" value="{{.CSRF}}">
           <input type="hidden" name="kind" value="meet">
           <button class="text-button">+ Offer Google Meet</button>
@@ -102,7 +102,7 @@
         {{if not .GoogleConfigured}}
         <div class="alert">Google is not configured yet. Your server owner needs to set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, then restart Slot. See the setup guide.</div>
         {{else}}
-        <form action="/oauth/google" method="post">
+        <form action="{{admin "/oauth/google"}}" method="post">
           <input type="hidden" name="csrf" value="{{.CSRF}}">
           <button class="secondary full">+ Connect or reconnect Google</button>
         </form>
@@ -111,7 +111,7 @@
         {{range .Accounts}}
         <div class="account-row">
           <span>{{.Identity}}</span>
-          <form method="post" action="/calendars/refresh">
+          <form method="post" action="{{admin "/calendars/refresh"}}">
             <input type="hidden" name="csrf" value="{{$.CSRF}}">
             <input type="hidden" name="account" value="{{.ID}}">
             <button class="text-button" title="Refresh calendar list">Refresh</button>
@@ -120,7 +120,7 @@
         {{end}}
 
         {{if .Calendars}}
-        <form method="post" action="/calendars">
+        <form method="post" action="{{admin "/calendars"}}">
           <input type="hidden" name="csrf" value="{{.CSRF}}">
           <fieldset class="calendar-list">
             <legend>Check for conflicts</legend>
@@ -147,7 +147,7 @@
       <section class="card">
         <h2>Days off</h2>
         <p class="hint">Block an entire date. Each meeting type reads the date in its own timezone. Existing bookings stay in place.</p>
-        <form method="post" action="/blocks" class="inline-form">
+        <form method="post" action="{{admin "/blocks"}}" class="inline-form">
           <input type="hidden" name="csrf" value="{{.CSRF}}">
           <label class="grow">Date<input type="date" name="day" required></label>
           <button class="secondary">Block date</button>
@@ -155,7 +155,7 @@
         {{range .Blocks}}
         <div class="account-row">
           <span>{{.}}</span>
-          <form method="post" action="/blocks/delete">
+          <form method="post" action="{{admin "/blocks/delete"}}">
             <input type="hidden" name="csrf" value="{{$.CSRF}}">
             <input type="hidden" name="day" value="{{.}}">
             <button class="text-button">Remove</button>
@@ -184,13 +184,13 @@
             <td>
               <div class="actions">
                 {{if or (eq .Status "pending") (eq .Status "cancel_pending")}}
-                <form method="post" action="/bookings/{{.ID}}/retry">
+                <form method="post" action="{{admin "/bookings/"}}{{.ID}}/retry">
                   <input type="hidden" name="csrf" value="{{$.CSRF}}">
                   <button class="text-button">Retry sync</button>
                 </form>
                 {{end}}
                 {{if or (eq .Status "pending") (eq .Status "confirmed")}}
-                <form method="post" action="/bookings/{{.ID}}/cancel" data-confirm="Cancel this booking and notify the guest through Google?">
+                <form method="post" action="{{admin "/bookings/"}}{{.ID}}/cancel" data-confirm="Cancel this booking and notify the guest through Google?">
                   <input type="hidden" name="csrf" value="{{$.CSRF}}">
                   <button class="text-button danger">Cancel</button>
                 </form>
@@ -209,7 +209,7 @@
 
   <section class="card" id="account">
     <h2>Change password</h2>
-    <form method="post" action="/password">
+    <form method="post" action="{{admin "/password"}}">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <div class="form-grid">
         <label>Current password
