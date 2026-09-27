@@ -39,13 +39,13 @@ func (a *App) authenticated(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, e := r.Cookie("slot_session")
 		if e != nil {
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			http.Redirect(w, r, a.adminURL("/login"), http.StatusSeeOther)
 			return
 		}
 		var uid int64
 		e = a.db.QueryRowContext(r.Context(), "SELECT user_id FROM sessions WHERE token=? AND expires>?", hashToken(c.Value), time.Now().Unix()).Scan(&uid)
 		if e != nil {
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			http.Redirect(w, r, a.adminURL("/login"), http.StatusSeeOther)
 			return
 		}
 		u, e := a.userByID(r.Context(), uid)
@@ -171,7 +171,7 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, a.adminURL("/"), http.StatusSeeOther)
 }
 
 func (a *App) login(w http.ResponseWriter, r *http.Request) {
@@ -203,7 +203,7 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, a.adminURL("/"), http.StatusSeeOther)
 }
 
 func (a *App) logout(w http.ResponseWriter, r *http.Request) {
@@ -213,7 +213,7 @@ func (a *App) logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.cookie(w, "slot_session", "", -1, true)
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
+	http.Redirect(w, r, a.adminURL("/login"), http.StatusSeeOther)
 }
 
 func (a *App) changePassword(w http.ResponseWriter, r *http.Request) {
@@ -246,5 +246,5 @@ func (a *App) changePassword(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/?notice=password", http.StatusSeeOther)
+	http.Redirect(w, r, a.adminURL("/?notice=password"), http.StatusSeeOther)
 }

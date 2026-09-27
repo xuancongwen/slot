@@ -73,7 +73,7 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/?notice=saved", http.StatusSeeOther)
+	http.Redirect(w, r, a.adminURL("/?notice=saved"), http.StatusSeeOther)
 }
 
 func (a *App) saveCalendarSettings(w http.ResponseWriter, r *http.Request) {
@@ -106,7 +106,7 @@ func (a *App) saveCalendarSettings(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/?notice=saved", http.StatusSeeOther)
+	http.Redirect(w, r, a.adminURL("/?notice=saved"), http.StatusSeeOther)
 }
 
 func (a *App) blockDay(w http.ResponseWriter, r *http.Request) {
@@ -120,7 +120,7 @@ func (a *App) blockDay(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/?notice=saved", http.StatusSeeOther)
+	http.Redirect(w, r, a.adminURL("/?notice=saved"), http.StatusSeeOther)
 }
 
 func (a *App) unblockDay(w http.ResponseWriter, r *http.Request) {
@@ -129,5 +129,5 @@ func (a *App) unblockDay(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/?notice=saved", http.StatusSeeOther)
+	http.Redirect(w, r, a.adminURL("/?notice=saved"), http.StatusSeeOther)
 }

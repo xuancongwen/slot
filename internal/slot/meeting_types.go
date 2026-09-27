@@ -108,7 +108,7 @@ func (a *App) saveMeetingType(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	http.Redirect(w, r, "/?notice=saved", http.StatusSeeOther)
+	http.Redirect(w, r, a.adminURL("/?notice=saved"), http.StatusSeeOther)
 }
 
 func (a *App) deleteMeetingType(w http.ResponseWriter, r *http.Request) {
@@ -118,5 +118,5 @@ func (a *App) deleteMeetingType(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/?notice=deleted", http.StatusSeeOther)
+	http.Redirect(w, r, a.adminURL("/?notice=deleted"), http.StatusSeeOther)
 }

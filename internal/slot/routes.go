@@ -69,6 +69,22 @@ func (a *App) commonRoutes(m *http.ServeMux) {
 	})
 }
 
+// adminURL is the path of an admin page, such as adminURL("/login").
+func (a *App) adminURL(path string) string { return a.adminPath + path }
+
+// siteHandler is the public listener: booking pages, plus the admin under /admin
+// unless it is hosted separately. Each keeps its own middleware and CSRF cookie.
+func (a *App) siteHandler() http.Handler {
+	if a.adminPath == "" {
+		return a.publicHandler()
+	}
+	m := http.NewServeMux()
+	m.Handle("/", a.publicHandler())
+	m.Handle(a.adminPath+"/", http.StripPrefix(a.adminPath, a.adminHandler()))
+	m.Handle("GET "+a.adminPath, http.RedirectHandler(a.adminPath+"/", http.StatusMovedPermanently))
+	return m
+}
+
 func (a *App) publicHandler() http.Handler {
 	m := http.NewServeMux()
 	a.commonRoutes(m)

@@ -37,26 +37,30 @@ else
 # Slot configuration. After editing: systemctl restart slot
 # deploy.sh refuses to run while example.com is still in this file.
 
-# Origins people will use in their browser. They must differ and have no path.
+# Origin guests use. The admin is served at PUBLIC_URL/admin.
 PUBLIC_URL=https://book.example.com
-ADMIN_URL=https://slot-admin.example.com
 
 # Listen on every interface so a reverse proxy on another machine can reach Slot.
-# Keep the admin port (8081) reachable only from your LAN or VPN.
 PUBLIC_ADDR=:8080
-ADMIN_ADDR=:8081
 
-# Google OAuth "Web application" client. Its redirect URI is ADMIN_URL/oauth/callback.
+# To serve the admin on its own origin and port instead, set all three. Keep that
+# port reachable only from your LAN or VPN.
+HOST_ADMIN_SEPARATELY=false
+#ADMIN_URL=https://slot-admin.example.com
+#ADMIN_ADDR=:8081
+
+# Google OAuth "Web application" client. Its redirect URI is PUBLIC_URL/admin/oauth/callback,
+# or ADMIN_URL/oauth/callback when the admin is hosted separately.
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 
-# Host registration on the admin port.
+# Host registration.
 REGISTRATION_OPEN=true
 REGISTRATION_CODE=
 
 # URL name of the only host, e.g. sam: their page is then the public root, and
 # registration accepts that name once. Requires REGISTRATION_CODE.
-SINGLE_HOST=
+SINGLE_HOST_URL_NAME=
 EOF
 fi
 

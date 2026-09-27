@@ -10,7 +10,7 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/" aria-label="Slot home"><span class="brand-icon">s.</span>slot</a>
+    <a class="brand" href="{{if .Admin}}{{admin "/"}}{{else}}/{{end}}" aria-label="Slot home"><span class="brand-icon">s.</span>slot</a>
   </header>
 {{end}}
 
