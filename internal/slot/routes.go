@@ -22,13 +22,17 @@ type Page struct {
 	Timezones                                           []string
 	Slots                                               []Slot
 	Weeks                                               [][]CalendarDay
-	Date, BookingURL                                    string
+	Date, BookingURL, SingleHost                        string
 	Month, MonthLabel, PrevMonth, NextMonth             string
 	GuestTimezone, SelectedLabel                        string
 	DetectTimezone                                      bool
 	Booking                                             Booking
 	Start                                               int64
 	SlotLabel, Ticket                                   string
+
+	// ViewURL is where the booking calendar is shown: /b/host/type, or /b/host
+	// or / when that is the only type. Date and time links stay on it.
+	ViewURL string
 }
 
 func (a *App) render(w http.ResponseWriter, r *http.Request, name string, p Page, status int) {
@@ -68,9 +72,7 @@ func (a *App) commonRoutes(m *http.ServeMux) {
 func (a *App) publicHandler() http.Handler {
 	m := http.NewServeMux()
 	a.commonRoutes(m)
-	m.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		a.render(w, r, "home", Page{Title: "Home"}, http.StatusOK)
-	})
+	m.HandleFunc("GET /{$}", a.home)
 	m.HandleFunc("GET /b/{slug}", a.hostPage)
 	m.HandleFunc("GET /b/{slug}/{type}", a.publicPage)
 	m.HandleFunc("POST /b/{slug}/{type}", a.book)

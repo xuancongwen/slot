@@ -104,8 +104,9 @@ func TestHostPageListsActiveTypes(t *testing.T) {
 	a, _ := testApp(t)
 	u := seedHost(t, a, "alex")
 	h := a.publicHandler()
-	if w := getRequest(h, "/b/alex"); w.Code != 302 || w.Header().Get("Location") != "/b/alex/chat" {
-		t.Fatalf("single type should redirect: %d %s", w.Code, w.Header().Get("Location"))
+	// A lone type's calendar shows in place; picking a date stays on /b/alex.
+	if w := getRequest(h, "/b/alex"); w.Code != 200 || !strings.Contains(w.Body.String(), `href="/b/alex?tz=`) || !strings.Contains(w.Body.String(), "Choose a day") {
+		t.Fatalf("single type: %d %s", w.Code, w.Body)
 	}
 	a.db.Exec("INSERT INTO meeting_types(user_id,slug,name) VALUES(?,'deep','Deep dive')", u.ID)
 	a.db.Exec("INSERT INTO meeting_types(user_id,slug,name,active) VALUES(?,'hidden','Secret',0)", u.ID)
@@ -118,6 +119,45 @@ func TestHostPageListsActiveTypes(t *testing.T) {
 	}
 }
 
+func TestSingleHostRoot(t *testing.T) {
+	a, _ := testApp(t)
+	a.cfg.SingleHost = "alex"
+	h := a.publicHandler()
+	if body := getRequest(h, "/").Body.String(); !strings.Contains(body, "Open the booking link") {
+		t.Fatal("root before the host registers should be the landing page")
+	}
+	u := seedHost(t, a, "alex")
+	seedHost(t, a, "other") // Only SINGLE_HOST is served at the root.
+	// The lone type's calendar is the root: month, date, and time links and the
+	// timezone form all stay on /, while booking still posts to the type's URL.
+	day := time.Now().UTC().AddDate(0, 0, 2).Format("2006-01-02")
+	w := getRequest(h, "/?tz=UTC&date="+day)
+	body := w.Body.String()
+	for _, want := range []string{`href="/?tz=UTC&amp;month=`, `action="/"`, "&amp;start="} {
+		if !strings.Contains(body, want) {
+			t.Errorf("root calendar missing %q", want)
+		}
+	}
+	if w.Code != 200 {
+		t.Fatalf("root: %d", w.Code)
+	}
+	var start string
+	if i := strings.Index(body, "&amp;start="); i >= 0 {
+		start = body[i+len("&amp;start=") : i+len("&amp;start=")+10]
+	}
+	if form := getRequest(h, "/?tz=UTC&date="+day+"&start="+start).Body.String(); !strings.Contains(form, `action="/b/alex/chat"`) {
+		t.Fatal("booking form should post to the type's own URL")
+	}
+	a.db.Exec("INSERT INTO meeting_types(user_id,slug,name) VALUES(?,'deep','Deep dive')", u.ID)
+	body = getRequest(h, "/").Body.String()
+	if !strings.Contains(body, `href="/b/alex/deep"`) || !strings.Contains(body, `href="/b/alex/chat"`) {
+		t.Fatalf("root should list types at their own URLs: %s", body)
+	}
+	a.cfg.SingleHost = ""
+	if body = getRequest(h, "/").Body.String(); !strings.Contains(body, "Open the booking link") {
+		t.Fatal("multi-host root should stay the landing page")
+	}
+}
 func TestGuestCalendarPage(t *testing.T) {
 	a, _ := testApp(t)
 	seedHost(t, a, "alex")

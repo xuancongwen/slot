@@ -9,7 +9,7 @@ A small Google Calendar booking app for a home lab. One Go process, one SQLite d
 - Multiple independent scheduling users, registered through the admin port.
 - Multiple Google accounts per user, with multiple calendars per account.
 - Combined free/busy checks across selected calendars; one destination calendar for bookings.
-- A public booking link for each user: `/b/your-name`, listing their meeting types at `/b/your-name/type`. No public user directory.
+- A public booking link for each user: `/b/your-name`, listing their meeting types at `/b/your-name/type`, or showing the calendar directly when there is only one. No public user directory. With `SINGLE_HOST` set, that host's page is the site root instead.
 - Multiple meeting types per user, each with its own length, IANA timezone, weekly availability, buffers, minimum notice, and booking horizon. A per-type timezone lets you publish a schedule for a trip alongside your usual one.
 - Full days off per user.
 - Locations in each user's profile: Google Meet (a fresh link per booking, created by Google) plus any links or addresses, such as a Zoom room. Guests pick one, the default preselected, or enter their own.
@@ -105,7 +105,8 @@ References: [Google web-server OAuth](https://developers.google.com/identity/pro
 | `GOOGLE_CLIENT_ID` | unset | Google OAuth Web application client ID. |
 | `GOOGLE_CLIENT_SECRET` | unset | Google OAuth client secret. |
 | `REGISTRATION_OPEN` | `true` | Set to `false` to disable host registration. Existing users can still sign in. |
-| `REGISTRATION_CODE` | unset | Optional shared code required to register a host. |
+| `REGISTRATION_CODE` | unset | Optional shared code required to register a host. Required with `SINGLE_HOST`. |
+| `SINGLE_HOST` | unset | URL name of the only host, e.g. `sam`. Their booking page is served at the public root, and registration accepts only that name, once. |
 | `PUBLIC_PORT`, `ADMIN_PORT` | `8080`, `8081` | Compose host-port mappings only. Update origins and Google redirects if changed. |
 
 The standalone binary does **not** read `.env`. Export variables in the shell or use your service manager's environment file. Compose reads `.env` for the interpolation shown in `compose.yaml`.

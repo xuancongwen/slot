@@ -53,6 +53,10 @@ GOOGLE_CLIENT_SECRET=
 # Host registration on the admin port.
 REGISTRATION_OPEN=true
 REGISTRATION_CODE=
+
+# URL name of the only host, e.g. sam: their page is then the public root, and
+# registration accepts that name once. Requires REGISTRATION_CODE.
+SINGLE_HOST=
 EOF
 fi
 

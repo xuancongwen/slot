@@ -69,9 +69,25 @@ func (a *App) loginSession(w http.ResponseWriter, r *http.Request, id int64) err
 	return e
 }
 
+// registrationOpen is false when REGISTRATION_OPEN is off, and on a single-host
+// server once that host has registered.
+func (a *App) registrationOpen(ctx context.Context) (bool, error) {
+	if !a.cfg.RegistrationOpen || a.cfg.SingleHost == "" {
+		return a.cfg.RegistrationOpen, nil
+	}
+	var users int
+	e := a.db.QueryRowContext(ctx, "SELECT count(*) FROM users").Scan(&users)
+	return users == 0, e
+}
+
 func (a *App) authPage(w http.ResponseWriter, r *http.Request) {
+	open, e := a.registrationOpen(r.Context())
+	if e != nil {
+		a.internal(w, r, e)
+		return
+	}
 	reg := r.URL.Path == "/register"
-	if reg && !a.cfg.RegistrationOpen {
+	if reg && !open {
 		a.fail(w, r, http.StatusForbidden, "Registration is closed on this server.")
 		return
 	}
@@ -79,7 +95,7 @@ func (a *App) authPage(w http.ResponseWriter, r *http.Request) {
 	if reg {
 		title = "Create account"
 	}
-	a.render(w, r, "auth", Page{Title: title, Admin: true, Register: reg, RegistrationOpen: a.cfg.RegistrationOpen}, http.StatusOK)
+	a.render(w, r, "auth", Page{Title: title, Admin: true, Register: reg, RegistrationOpen: open, SingleHost: a.cfg.SingleHost}, http.StatusOK)
 }
 
 func (a *App) authCapacity(w http.ResponseWriter) bool {
@@ -93,7 +109,12 @@ func (a *App) authCapacity(w http.ResponseWriter) bool {
 }
 
 func (a *App) register(w http.ResponseWriter, r *http.Request) {
-	if !a.cfg.RegistrationOpen {
+	open, e := a.registrationOpen(r.Context())
+	if e != nil {
+		a.internal(w, r, e)
+		return
+	}
+	if !open {
 		a.fail(w, r, http.StatusForbidden, "Registration is closed.")
 		return
 	}
@@ -109,6 +130,11 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, http.StatusBadRequest, "Use a valid email, a name up to 100 characters, a URL name of 1–40 lowercase letters/digits/hyphens, and a password of 12–256 characters.")
 		return
 	}
+	// The unique slug is also what stops two concurrent sign-ups on a single-host server.
+	if a.cfg.SingleHost != "" && slug != a.cfg.SingleHost {
+		a.fail(w, r, http.StatusBadRequest, "This server hosts one booking page. Use the booking URL name "+a.cfg.SingleHost+".")
+		return
+	}
 	if !a.authCapacity(w) {
 		return
 	}
@@ -120,7 +146,7 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 		tz = "UTC"
 	}
 	var id int64
-	e := a.inTx(r.Context(), func(tx *sql.Tx) error {
+	e = a.inTx(r.Context(), func(tx *sql.Tx) error {
 		if e := tx.QueryRowContext(r.Context(), "INSERT INTO users(email,password,name,slug,created) VALUES(?,?,?,?,?) RETURNING id", email, hash, name, slug, time.Now().Unix()).Scan(&id); e != nil {
 			return e
 		}
@@ -165,7 +191,12 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 	}
 	match := passwordMatches(hash, password)
 	if e != nil || !match {
-		a.render(w, r, "auth", Page{Title: "Sign in", Admin: true, RegistrationOpen: a.cfg.RegistrationOpen, Error: "Email or password is incorrect."}, http.StatusUnauthorized)
+		open, e := a.registrationOpen(r.Context())
+		if e != nil {
+			a.internal(w, r, e)
+			return
+		}
+		a.render(w, r, "auth", Page{Title: "Sign in", Admin: true, RegistrationOpen: open, Error: "Email or password is incorrect."}, http.StatusUnauthorized)
 		return
 	}
 	if e = a.loginSession(w, r, u.ID); e != nil {

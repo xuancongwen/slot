@@ -1,6 +1,7 @@
 package slot
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
@@ -14,8 +15,12 @@ import (
 	"time"
 )
 
+func (a *App) publishedHost(ctx context.Context, slug string) (User, error) {
+	return scanUser(a.db.QueryRowContext(ctx, "SELECT "+userColumns+" FROM users WHERE slug=? AND enabled=1", slug))
+}
+
 func (a *App) publicUser(w http.ResponseWriter, r *http.Request) (User, bool) {
-	u, e := scanUser(a.db.QueryRowContext(r.Context(), "SELECT "+userColumns+" FROM users WHERE slug=? AND enabled=1", r.PathValue("slug")))
+	u, e := a.publishedHost(r.Context(), r.PathValue("slug"))
 	if errors.Is(e, sql.ErrNoRows) {
 		http.NotFound(w, r)
 		return u, false
@@ -44,18 +49,39 @@ func (a *App) publicMeetingType(w http.ResponseWriter, r *http.Request) (User, M
 	return u, t, true
 }
 
-func (a *App) hostPage(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.publicUser(w, r)
-	if !ok {
-		return
+// home serves the single host's page at the root. Until that host publishes, and on
+// servers with several hosts, it is a generic landing page.
+func (a *App) home(w http.ResponseWriter, r *http.Request) {
+	if a.cfg.SingleHost != "" {
+		u, e := a.publishedHost(r.Context(), a.cfg.SingleHost)
+		if e == nil {
+			a.showHost(w, r, u, "/")
+			return
+		}
+		if !errors.Is(e, sql.ErrNoRows) {
+			a.internal(w, r, e)
+			return
+		}
 	}
+	a.render(w, r, "home", Page{Title: "Home"}, http.StatusOK)
+}
+
+func (a *App) hostPage(w http.ResponseWriter, r *http.Request) {
+	if u, ok := a.publicUser(w, r); ok {
+		a.showHost(w, r, u, "/b/"+u.Slug)
+	}
+}
+
+// showHost lists the host's meeting types, or shows the calendar right at viewURL
+// when there is only one, rather than redirecting to the type's own URL.
+func (a *App) showHost(w http.ResponseWriter, r *http.Request, u User, viewURL string) {
 	ts, e := a.meetingTypes(r.Context(), u.ID, true)
 	if e != nil {
 		a.internal(w, r, e)
 		return
 	}
 	if len(ts) == 1 {
-		http.Redirect(w, r, "/b/"+u.Slug+"/"+ts[0].Slug, http.StatusFound)
+		a.showBooking(w, r, u, ts[0], viewURL)
 		return
 	}
 	a.render(w, r, "host", Page{Title: "Meet with " + u.Name, User: u, MeetingTypes: ts, BookingURL: "/b/" + u.Slug}, http.StatusOK)
@@ -69,10 +95,14 @@ type CalendarDay struct {
 }
 
 func (a *App) publicPage(w http.ResponseWriter, r *http.Request) {
-	u, t, ok := a.publicMeetingType(w, r)
-	if !ok {
-		return
+	if u, t, ok := a.publicMeetingType(w, r); ok {
+		a.showBooking(w, r, u, t, "/b/"+u.Slug+"/"+t.Slug)
 	}
+}
+
+// showBooking renders t's calendar at viewURL. The booking form always posts to the
+// type's own URL, so the same POST handler serves every place the calendar appears.
+func (a *App) showBooking(w http.ResponseWriter, r *http.Request, u User, t MeetingType, viewURL string) {
 	host, e := time.LoadLocation(t.Timezone)
 	if e != nil {
 		a.internal(w, r, e)
@@ -111,7 +141,7 @@ func (a *App) publicPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	monthEnd := monthStart.AddDate(0, 1, 0)
-	p := Page{Title: t.Name + " with " + u.Name, User: u, MeetingType: t, Date: date, BookingURL: "/b/" + u.Slug + "/" + t.Slug, GuestTimezone: guestTZ, DetectTimezone: detect, Timezones: a.timezones, Month: month, MonthLabel: monthStart.Format("January 2006")}
+	p := Page{Title: t.Name + " with " + u.Name, User: u, MeetingType: t, Date: date, BookingURL: "/b/" + u.Slug + "/" + t.Slug, ViewURL: viewURL, GuestTimezone: guestTZ, DetectTimezone: detect, Timezones: a.timezones, Month: month, MonthLabel: monthStart.Format("January 2006")}
 	if month > minDate[:7] {
 		p.PrevMonth = monthStart.AddDate(0, -1, 0).Format("2006-01")
 	}
