@@ -1,8 +1,9 @@
 package slot
 
 import (
-	"errors"
+	"database/sql"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -37,57 +38,34 @@ func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	rows, e := a.db.QueryContext(r.Context(), "SELECT id,identity FROM accounts WHERE user_id=? ORDER BY id", u.ID)
-	if e != nil {
-		a.internal(w, r, e)
-		return
-	}
-	for rows.Next() {
+	p.Accounts, e = queryAll(r.Context(), a.db, func(s scanner) (Account, error) {
 		var ac Account
-		if e = rows.Scan(&ac.ID, &ac.Identity); e != nil {
-			break
-		}
-		p.Accounts = append(p.Accounts, ac)
-	}
-	rowErr := rows.Err()
-	rows.Close()
-	if e != nil || rowErr != nil {
-		a.internal(w, r, errors.Join(e, rowErr))
-		return
-	}
-	rows, e = a.db.QueryContext(r.Context(), "SELECT day FROM blocks WHERE user_id=? ORDER BY day", u.ID)
+		return ac, s.Scan(&ac.ID, &ac.Identity)
+	}, "SELECT id,identity FROM accounts WHERE user_id=? ORDER BY id", u.ID)
 	if e != nil {
 		a.internal(w, r, e)
 		return
 	}
-	for rows.Next() {
-		var day string
-		if e = rows.Scan(&day); e != nil {
-			break
-		}
-		p.Blocks = append(p.Blocks, day)
-	}
-	rowErr = rows.Err()
-	rows.Close()
-	if e != nil || rowErr != nil {
-		a.internal(w, r, errors.Join(e, rowErr))
+	p.Blocks, e = queryAll(r.Context(), a.db, scanString, "SELECT day FROM blocks WHERE user_id=? ORDER BY day", u.ID)
+	if e != nil {
+		a.internal(w, r, e)
 		return
 	}
 	notices := map[string]string{"saved": "Your settings are saved.", "connected": "Google account connected. Choose which calendars to check and where bookings should go.", "refreshed": "Calendar list refreshed.", "cancelled": "Cancellation requested. The slot stays reserved until Google confirms.", "retry": "Calendar sync retried.", "password": "Password changed. Other sessions have been signed out.", "deleted": "Meeting type deleted."}
 	p.Notice = notices[r.URL.Query().Get("notice")]
-	a.render(w, r, "dashboard", p, 200)
+	a.render(w, r, "dashboard", p, http.StatusOK)
 }
 
 func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	name := strings.TrimSpace(r.PostForm.Get("name"))
 	if len(name) < 1 || len(name) > 100 {
-		a.fail(w, r, 400, "Use a display name up to 100 characters.")
+		a.fail(w, r, http.StatusBadRequest, "Use a display name up to 100 characters.")
 		return
 	}
 	enabled := r.PostForm.Get("enabled") == "on"
 	if enabled && !u.WriteCalendar.Valid {
-		a.fail(w, r, 400, "Select a destination calendar before publishing.")
+		a.fail(w, r, http.StatusBadRequest, "Select a destination calendar before publishing.")
 		return
 	}
 	_, e := a.db.ExecContext(r.Context(), `UPDATE users SET name=?,enabled=? WHERE id=?`, name, enabled, u.ID)
@@ -95,7 +73,7 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/?notice=saved", 303)
+	http.Redirect(w, r, "/?notice=saved", http.StatusSeeOther)
 }
 
 func (a *App) saveCalendarSettings(w http.ResponseWriter, r *http.Request) {
@@ -107,52 +85,34 @@ func (a *App) saveCalendarSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	write, e := strconv.ParseInt(r.PostForm.Get("write"), 10, 64)
 	if e != nil {
-		a.fail(w, r, 400, "Choose a calendar for new bookings.")
+		a.fail(w, r, http.StatusBadRequest, "Choose a calendar for new bookings.")
 		return
 	}
-	valid := false
-	for _, c := range cs {
-		if c.ID == write && (c.Role == "owner" || c.Role == "writer") {
-			valid = true
-		}
-	}
-	if !valid {
-		a.fail(w, r, 400, "The destination must be a writable calendar belonging to one of your connected accounts.")
+	if !slices.ContainsFunc(cs, func(c Calendar) bool { return c.ID == write && c.Writable() }) {
+		a.fail(w, r, http.StatusBadRequest, "The destination must be a writable calendar belonging to one of your connected accounts.")
 		return
 	}
-	tx, e := a.db.BeginTx(r.Context(), nil)
-	if e != nil {
-		a.internal(w, r, e)
-		return
-	}
-	defer tx.Rollback()
-	for _, c := range cs {
-		checked := c.ID == write
-		for _, id := range r.PostForm["busy"] {
-			if id == strconv.FormatInt(c.ID, 10) {
-				checked = true
+	e = a.inTx(r.Context(), func(tx *sql.Tx) error {
+		for _, c := range cs {
+			checked := c.ID == write || slices.Contains(r.PostForm["busy"], strconv.FormatInt(c.ID, 10))
+			if _, e := tx.ExecContext(r.Context(), "UPDATE calendars SET check_busy=? WHERE id=?", checked, c.ID); e != nil {
+				return e
 			}
 		}
-		if _, e = tx.ExecContext(r.Context(), "UPDATE calendars SET check_busy=? WHERE id=?", checked, c.ID); e != nil {
-			a.internal(w, r, e)
-			return
-		}
-	}
-	_, e = tx.ExecContext(r.Context(), "UPDATE users SET write_calendar=? WHERE id=?", write, u.ID)
-	if e == nil {
-		e = tx.Commit()
-	}
+		_, e := tx.ExecContext(r.Context(), "UPDATE users SET write_calendar=? WHERE id=?", write, u.ID)
+		return e
+	})
 	if e != nil {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/?notice=saved", 303)
+	http.Redirect(w, r, "/?notice=saved", http.StatusSeeOther)
 }
 
 func (a *App) blockDay(w http.ResponseWriter, r *http.Request) {
 	day := r.PostForm.Get("day")
-	if _, e := time.Parse("2006-01-02", day); e != nil {
-		a.fail(w, r, 400, "Choose a valid date.")
+	if _, e := time.Parse(dateLayout, day); e != nil {
+		a.fail(w, r, http.StatusBadRequest, "Choose a valid date.")
 		return
 	}
 	_, e := a.db.ExecContext(r.Context(), "INSERT OR IGNORE INTO blocks(user_id,day) VALUES(?,?)", currentUser(r).ID, day)
@@ -160,7 +120,7 @@ func (a *App) blockDay(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/?notice=saved", 303)
+	http.Redirect(w, r, "/?notice=saved", http.StatusSeeOther)
 }
 
 func (a *App) unblockDay(w http.ResponseWriter, r *http.Request) {
@@ -169,5 +129,5 @@ func (a *App) unblockDay(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/?notice=saved", 303)
+	http.Redirect(w, r, "/?notice=saved", http.StatusSeeOther)
 }

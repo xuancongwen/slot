@@ -17,6 +17,42 @@ const userColumns = "id,email,password,name,slug,enabled,write_calendar,default_
 
 type scanner interface{ Scan(...any) error }
 
+// queryAll runs query and scans every row with scan.
+func queryAll[T any](ctx context.Context, db *sql.DB, scan func(scanner) (T, error), query string, args ...any) ([]T, error) {
+	rows, e := db.QueryContext(ctx, query, args...)
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	var out []T
+	for rows.Next() {
+		v, e := scan(rows)
+		if e != nil {
+			return nil, e
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+func scanString(s scanner) (string, error) {
+	var v string
+	return v, s.Scan(&v)
+}
+
+// inTx runs fn in a transaction, committing only if fn succeeds.
+func (a *App) inTx(ctx context.Context, fn func(*sql.Tx) error) error {
+	tx, e := a.db.BeginTx(ctx, nil)
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback()
+	if e = fn(tx); e != nil {
+		return e
+	}
+	return tx.Commit()
+}
+
 func scanUser(s scanner) (User, error) {
 	var u User
 	err := s.Scan(&u.ID, &u.Email, &u.Password, &u.Name, &u.Slug, &u.Enabled, &u.WriteCalendar, &u.DefaultLocation)
@@ -45,20 +81,7 @@ func scanMeetingType(s scanner) (MeetingType, error) {
 }
 
 func (a *App) meetingTypes(ctx context.Context, uid int64, activeOnly bool) ([]MeetingType, error) {
-	rows, e := a.db.QueryContext(ctx, "SELECT "+meetingTypeColumns+" FROM meeting_types WHERE user_id=? AND (active=1 OR ?=0) ORDER BY duration,name", uid, activeOnly)
-	if e != nil {
-		return nil, e
-	}
-	defer rows.Close()
-	var ts []MeetingType
-	for rows.Next() {
-		t, e := scanMeetingType(rows)
-		if e != nil {
-			return nil, e
-		}
-		ts = append(ts, t)
-	}
-	return ts, rows.Err()
+	return queryAll(ctx, a.db, scanMeetingType, "SELECT "+meetingTypeColumns+" FROM meeting_types WHERE user_id=? AND (active=1 OR ?=0) ORDER BY duration,name", uid, activeOnly)
 }
 
 type Location struct {
@@ -76,21 +99,12 @@ func (l Location) Text() string {
 }
 
 func (a *App) locations(ctx context.Context, u User) ([]Location, error) {
-	rows, e := a.db.QueryContext(ctx, "SELECT id,kind,label,detail FROM locations WHERE user_id=? ORDER BY position,id", u.ID)
-	if e != nil {
-		return nil, e
-	}
-	defer rows.Close()
-	var ls []Location
-	for rows.Next() {
+	return queryAll(ctx, a.db, func(s scanner) (Location, error) {
 		var l Location
-		if e = rows.Scan(&l.ID, &l.Kind, &l.Label, &l.Detail); e != nil {
-			return nil, e
-		}
+		e := s.Scan(&l.ID, &l.Kind, &l.Label, &l.Detail)
 		l.Default = u.DefaultLocation.Valid && l.ID == u.DefaultLocation.Int64
-		ls = append(ls, l)
-	}
-	return ls, rows.Err()
+		return l, e
+	}, "SELECT id,kind,label,detail FROM locations WHERE user_id=? ORDER BY position,id", u.ID)
 }
 
 type Calendar struct {
@@ -99,27 +113,22 @@ type Calendar struct {
 	CheckBusy                      bool
 }
 
+// Writable reports whether Slot may insert bookings into the calendar.
+func (c Calendar) Writable() bool { return c.Role == "owner" || c.Role == "writer" }
+
+const calendarQuery = "SELECT c.id,c.account_id,c.google_id,c.name,c.role,a.identity,c.check_busy FROM calendars c JOIN accounts a ON a.id=c.account_id"
+
+func scanCalendar(s scanner) (Calendar, error) {
+	var c Calendar
+	err := s.Scan(&c.ID, &c.AccountID, &c.GoogleID, &c.Name, &c.Role, &c.Identity, &c.CheckBusy)
+	return c, err
+}
 func (a *App) calendars(ctx context.Context, uid int64) ([]Calendar, error) {
-	rows, err := a.db.QueryContext(ctx, `SELECT c.id,c.account_id,c.google_id,c.name,c.role,a.identity,c.check_busy FROM calendars c JOIN accounts a ON a.id=c.account_id WHERE a.user_id=? ORDER BY a.identity,c.name`, uid)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var result []Calendar
-	for rows.Next() {
-		var c Calendar
-		if err = rows.Scan(&c.ID, &c.AccountID, &c.GoogleID, &c.Name, &c.Role, &c.Identity, &c.CheckBusy); err != nil {
-			return nil, err
-		}
-		result = append(result, c)
-	}
-	return result, rows.Err()
+	return queryAll(ctx, a.db, scanCalendar, calendarQuery+" WHERE a.user_id=? ORDER BY a.identity,c.name", uid)
 }
 
 func (a *App) bookingCalendar(ctx context.Context, id int64) (Calendar, error) {
-	var c Calendar
-	err := a.db.QueryRowContext(ctx, `SELECT c.id,c.account_id,c.google_id,c.name,c.role,a.identity,c.check_busy FROM calendars c JOIN accounts a ON a.id=c.account_id WHERE c.id=?`, id).Scan(&c.ID, &c.AccountID, &c.GoogleID, &c.Name, &c.Role, &c.Identity, &c.CheckBusy)
-	return c, err
+	return scanCalendar(a.db.QueryRowContext(ctx, calendarQuery+" WHERE c.id=?", id))
 }
 
 type Booking struct {
@@ -149,20 +158,7 @@ func (a *App) getBooking(ctx context.Context, token string) (Booking, error) {
 }
 
 func (a *App) hostBookings(ctx context.Context, uid int64) ([]Booking, error) {
-	rows, e := a.db.QueryContext(ctx, "SELECT "+bookingColumns+" FROM bookings WHERE user_id=? ORDER BY start DESC LIMIT 100", uid)
-	if e != nil {
-		return nil, e
-	}
-	defer rows.Close()
-	var bs []Booking
-	for rows.Next() {
-		b, e := scanBooking(rows)
-		if e != nil {
-			return nil, e
-		}
-		bs = append(bs, b)
-	}
-	return bs, rows.Err()
+	return queryAll(ctx, a.db, scanBooking, "SELECT "+bookingColumns+" FROM bookings WHERE user_id=? ORDER BY start DESC LIMIT 100", uid)
 }
 
 func (a *App) reserve(ctx context.Context, b Booking) error {

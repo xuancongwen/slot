@@ -131,7 +131,7 @@
           <label>Add bookings to
             <select name="write" required>
               <option value="">Choose a calendar</option>
-              {{range .Calendars}}{{if or (eq .Role "owner") (eq .Role "writer")}}
+              {{range .Calendars}}{{if .Writable}}
               <option value="{{.ID}}" {{if eq $.User.WriteCalendar.Int64 .ID}}selected{{end}}>{{.Name}} — {{.Identity}}</option>
               {{end}}{{end}}
             </select>

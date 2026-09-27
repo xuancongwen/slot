@@ -1,6 +1,7 @@
 package slot
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,7 +16,7 @@ func (a *App) addLocation(w http.ResponseWriter, r *http.Request) {
 	if r.PostForm.Get("kind") == "meet" {
 		kind, label, detail = "meet", "Google Meet", ""
 	} else if len(label) < 1 || len(label) > 60 || len(detail) > 500 {
-		a.fail(w, r, 400, "Give the location a name up to 60 characters, and a link or address up to 500.")
+		a.fail(w, r, http.StatusBadRequest, "Give the location a name up to 60 characters, and a link or address up to 500.")
 		return
 	}
 	var id int64
@@ -27,7 +28,7 @@ func (a *App) addLocation(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/?notice=saved#profile", 303)
+	http.Redirect(w, r, "/?notice=saved#profile", http.StatusSeeOther)
 }
 
 func (a *App) defaultLocation(w http.ResponseWriter, r *http.Request) {
@@ -37,7 +38,7 @@ func (a *App) defaultLocation(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/?notice=saved#profile", 303)
+	http.Redirect(w, r, "/?notice=saved#profile", http.StatusSeeOther)
 }
 
 // moveLocation swaps a location with its neighbor, then renumbers the list so
@@ -55,27 +56,23 @@ func (a *App) moveLocation(w http.ResponseWriter, r *http.Request) {
 		j = i - 1
 	}
 	if i < 0 || j < 0 || j >= len(ls) {
-		http.Redirect(w, r, "/#profile", 303)
+		http.Redirect(w, r, "/#profile", http.StatusSeeOther)
 		return
 	}
 	ls[i], ls[j] = ls[j], ls[i]
-	tx, e := a.db.BeginTx(r.Context(), nil)
+	e = a.inTx(r.Context(), func(tx *sql.Tx) error {
+		for position, l := range ls {
+			if _, e := tx.ExecContext(r.Context(), "UPDATE locations SET position=? WHERE id=? AND user_id=?", position, l.ID, u.ID); e != nil {
+				return e
+			}
+		}
+		return nil
+	})
 	if e != nil {
 		a.internal(w, r, e)
 		return
 	}
-	defer tx.Rollback()
-	for position, l := range ls {
-		if _, e = tx.ExecContext(r.Context(), "UPDATE locations SET position=? WHERE id=? AND user_id=?", position, l.ID, u.ID); e != nil {
-			a.internal(w, r, e)
-			return
-		}
-	}
-	if e = tx.Commit(); e != nil {
-		a.internal(w, r, e)
-		return
-	}
-	http.Redirect(w, r, "/#profile", 303)
+	http.Redirect(w, r, "/#profile", http.StatusSeeOther)
 }
 
 func (a *App) deleteLocation(w http.ResponseWriter, r *http.Request) {
@@ -84,7 +81,7 @@ func (a *App) deleteLocation(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/?notice=saved#profile", 303)
+	http.Redirect(w, r, "/?notice=saved#profile", http.StatusSeeOther)
 }
 
 // chosenLocation resolves the guest's pick. Their own text wins over the selected option,

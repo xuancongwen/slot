@@ -26,7 +26,7 @@ func (a *App) middleware(h http.Handler, admin bool) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
 		if !a.limit.Allow(r, admin) {
-			http.Error(w, "Too many requests. Please try again in a minute.", 429)
+			http.Error(w, "Too many requests. Please try again in a minute.", http.StatusTooManyRequests)
 			return
 		}
 		if r.Method == http.MethodPost {
@@ -37,20 +37,20 @@ func (a *App) middleware(h http.Handler, admin bool) http.Handler {
 				name = "slot_admin_csrf"
 			}
 			if got := r.Header.Get("Origin"); got != "" && got != origin {
-				http.Error(w, "Origin rejected", 403)
+				http.Error(w, "Origin rejected", http.StatusForbidden)
 				return
 			}
 			if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
-				http.Error(w, "Cross-site request rejected", 403)
+				http.Error(w, "Cross-site request rejected", http.StatusForbidden)
 				return
 			}
 			if e := r.ParseForm(); e != nil {
-				http.Error(w, "Invalid form", 400)
+				http.Error(w, "Invalid form", http.StatusBadRequest)
 				return
 			}
 			c, e := r.Cookie(name)
 			if e != nil || len(c.Value) != 64 || subtle.ConstantTimeCompare([]byte(c.Value), []byte(r.PostForm.Get("csrf"))) != 1 {
-				http.Error(w, "Form expired. Reload the page and try again.", 403)
+				http.Error(w, "Form expired. Reload the page and try again.", http.StatusForbidden)
 				return
 			}
 		}

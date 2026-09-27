@@ -46,9 +46,6 @@ func TestDST(t *testing.T) {
 		}
 		seen[x.Start] = true
 	}
-	if s[0].Label == s[2].Label {
-		t.Fatal("ambiguous repeated hour labels")
-	}
 }
 
 func TestFailClosedAndDaysOff(t *testing.T) {

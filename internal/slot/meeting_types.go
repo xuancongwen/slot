@@ -3,6 +3,7 @@ package slot
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -16,24 +17,12 @@ var days = []DayOption{{1, "Mon"}, {2, "Tue"}, {3, "Wed"}, {4, "Thu"}, {5, "Fri"
 
 // freeSlug appends -2, -3, … to t's generated slug until no other meeting type of u uses it.
 func (a *App) freeSlug(r *http.Request, u User, t MeetingType) (string, error) {
-	taken := map[string]bool{}
-	rows, e := a.db.QueryContext(r.Context(), "SELECT slug FROM meeting_types WHERE user_id=? AND id!=?", u.ID, t.ID)
+	taken, e := queryAll(r.Context(), a.db, scanString, "SELECT slug FROM meeting_types WHERE user_id=? AND id!=?", u.ID, t.ID)
 	if e != nil {
 		return "", e
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var slug string
-		if e = rows.Scan(&slug); e != nil {
-			return "", e
-		}
-		taken[slug] = true
-	}
-	if e = rows.Err(); e != nil {
-		return "", e
-	}
 	slug := t.Slug
-	for n := 2; taken[slug]; n++ {
+	for n := 2; slices.Contains(taken, slug); n++ {
 		suffix := fmt.Sprintf("-%d", n)
 		slug = strings.TrimRight(t.Slug[:min(len(t.Slug), 40-len(suffix))], "-") + suffix
 	}
@@ -58,7 +47,7 @@ func (a *App) meetingTypePage(w http.ResponseWriter, r *http.Request) {
 	if t.ID != 0 {
 		title = t.Name
 	}
-	a.render(w, r, "meeting_type", Page{Title: title, Admin: true, User: currentUser(r), MeetingType: t, Days: days, Timezones: a.timezones, BookingURL: a.cfg.PublicURL + "/b/" + currentUser(r).Slug}, 200)
+	a.render(w, r, "meeting_type", Page{Title: title, Admin: true, User: currentUser(r), MeetingType: t, Days: days, Timezones: a.timezones, BookingURL: a.cfg.PublicURL + "/b/" + currentUser(r).Slug}, http.StatusOK)
 }
 
 func (a *App) saveMeetingType(w http.ResponseWriter, r *http.Request) {
@@ -92,11 +81,11 @@ func (a *App) saveMeetingType(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(t.Name) < 1 || len(t.Name) > 100 || !slugPattern.MatchString(t.Slug) || !validTimezone(t.Timezone) || e1 != nil || e2 != nil || e3 != nil || e4 != nil || e5 != nil || e6 != nil || t.StartMin >= t.EndMin || t.Duration < 5 || t.Duration > 240 || t.Duration > t.EndMin-t.StartMin || t.Buffer < 0 || t.Buffer > 120 || t.Notice < 0 || t.Notice > 43200 || t.Horizon < 1 || t.Horizon > 90 {
-		a.fail(w, r, 400, "Check the name, URL, timezone, and hours. Length: 5–240 minutes, buffer: 0–120 minutes, notice: 0–43200 minutes, booking horizon: 1–90 days.")
+		a.fail(w, r, http.StatusBadRequest, "Check the name, URL, timezone, and hours. Length: 5–240 minutes, buffer: 0–120 minutes, notice: 0–43200 minutes, booking horizon: 1–90 days.")
 		return
 	}
 	if t.Active && t.Days == "" {
-		a.fail(w, r, 400, "Choose at least one available weekday before turning this meeting type on.")
+		a.fail(w, r, http.StatusBadRequest, "Choose at least one available weekday before turning this meeting type on.")
 		return
 	}
 	u := currentUser(r)
@@ -113,13 +102,13 @@ func (a *App) saveMeetingType(w http.ResponseWriter, r *http.Request) {
 	}
 	if e != nil {
 		if strings.Contains(e.Error(), "UNIQUE") {
-			a.fail(w, r, 409, "You already have a meeting type at that URL.")
+			a.fail(w, r, http.StatusConflict, "You already have a meeting type at that URL.")
 		} else {
 			a.internal(w, r, e)
 		}
 		return
 	}
-	http.Redirect(w, r, "/?notice=saved", 303)
+	http.Redirect(w, r, "/?notice=saved", http.StatusSeeOther)
 }
 
 func (a *App) deleteMeetingType(w http.ResponseWriter, r *http.Request) {
@@ -129,5 +118,5 @@ func (a *App) deleteMeetingType(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/?notice=deleted", 303)
+	http.Redirect(w, r, "/?notice=deleted", http.StatusSeeOther)
 }

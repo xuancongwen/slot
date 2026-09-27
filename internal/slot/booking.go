@@ -58,7 +58,7 @@ func (a *App) hostPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/b/"+u.Slug+"/"+ts[0].Slug, http.StatusFound)
 		return
 	}
-	a.render(w, r, "host", Page{Title: "Meet with " + u.Name, User: u, MeetingTypes: ts, BookingURL: "/b/" + u.Slug}, 200)
+	a.render(w, r, "host", Page{Title: "Meet with " + u.Name, User: u, MeetingTypes: ts, BookingURL: "/b/" + u.Slug}, http.StatusOK)
 }
 
 // CalendarDay is one cell of the guest's month grid, dated in the guest's timezone.
@@ -94,7 +94,7 @@ func (a *App) publicPage(w http.ResponseWriter, r *http.Request) {
 	if date != "" {
 		day, e = time.ParseInLocation(dateLayout, date, guest)
 		if e != nil || date < minDate || date > maxDate {
-			a.fail(w, r, 400, "Choose a date within the booking window.")
+			a.fail(w, r, http.StatusBadRequest, "Choose a date within the booking window.")
 			return
 		}
 	}
@@ -107,7 +107,7 @@ func (a *App) publicPage(w http.ResponseWriter, r *http.Request) {
 	}
 	monthStart, e := time.ParseInLocation("2006-01", month, guest)
 	if e != nil || month < minDate[:7] || month > maxDate[:7] {
-		a.fail(w, r, 400, "Choose a month within the booking window.")
+		a.fail(w, r, http.StatusBadRequest, "Choose a month within the booking window.")
 		return
 	}
 	monthEnd := monthStart.AddDate(0, 1, 0)
@@ -122,7 +122,7 @@ func (a *App) publicPage(w http.ResponseWriter, r *http.Request) {
 	if e != nil {
 		slog.Warn("availability unavailable", "host", u.ID, "error", e)
 		p.Error = "Availability could not be verified with Google. Please try again shortly."
-		a.render(w, r, "booking", p, 503)
+		a.render(w, r, "booking", p, http.StatusServiceUnavailable)
 		return
 	}
 	open := map[string][]Slot{}
@@ -132,7 +132,7 @@ func (a *App) publicPage(w http.ResponseWriter, r *http.Request) {
 	}
 	p.Weeks = calendarWeeks(monthStart, date, open)
 	if date == "" {
-		a.render(w, r, "booking", p, 200)
+		a.render(w, r, "booking", p, http.StatusOK)
 		return
 	}
 	p.SelectedLabel = day.Format("Monday, January 2")
@@ -140,7 +140,7 @@ func (a *App) publicPage(w http.ResponseWriter, r *http.Request) {
 	if chosen := q.Get("start"); chosen != "" {
 		start, e := strconv.ParseInt(chosen, 10, 64)
 		if e != nil {
-			a.fail(w, r, 400, "Invalid time")
+			a.fail(w, r, http.StatusBadRequest, "Invalid time")
 			return
 		}
 		found := false
@@ -160,7 +160,7 @@ func (a *App) publicPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	a.render(w, r, "booking", p, 200)
+	a.render(w, r, "booking", p, http.StatusOK)
 }
 
 // calendarWeeks lays out monthStart's month as Sunday-first weeks.
@@ -237,27 +237,27 @@ func (a *App) book(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.PostForm.Get("website") != "" {
-		a.fail(w, r, 400, "Unable to book.")
+		a.fail(w, r, http.StatusBadRequest, "Unable to book.")
 		return
 	}
 	start, id, token, e := a.verifyTicket(r.PostForm.Get("ticket"), u, t)
 	if e != nil {
-		a.fail(w, r, 400, "This booking form expired. Return to the booking page and choose a time again.")
+		a.fail(w, r, http.StatusBadRequest, "This booking form expired. Return to the booking page and choose a time again.")
 		return
 	}
 	name := strings.TrimSpace(r.PostForm.Get("name"))
 	email := strings.TrimSpace(r.PostForm.Get("email"))
 	if len(name) < 1 || len(name) > 100 || !validEmail(email) {
-		a.fail(w, r, 400, "Enter your name and a valid email address.")
+		a.fail(w, r, http.StatusBadRequest, "Enter your name and a valid email address.")
 		return
 	}
 	location, meet, e := a.chosenLocation(r, u)
 	if e != nil {
-		a.fail(w, r, 400, "Choose where to meet, or enter a location up to 500 characters.")
+		a.fail(w, r, http.StatusBadRequest, "Choose where to meet, or enter a location up to 500 characters.")
 		return
 	}
 	if existing, e := a.getBooking(r.Context(), token); e == nil {
-		http.Redirect(w, r, "/manage/"+existing.ManageToken, 303)
+		http.Redirect(w, r, "/manage/"+existing.ManageToken, http.StatusSeeOther)
 		return
 	} else if !errors.Is(e, sql.ErrNoRows) {
 		a.internal(w, r, e)
@@ -269,7 +269,7 @@ func (a *App) book(w http.ResponseWriter, r *http.Request) {
 	}
 	slots, e := a.availability(r.Context(), u, t, time.Unix(start, 0), time.Unix(start+1, 0), time.Now())
 	if e != nil {
-		a.fail(w, r, 503, "Could not verify availability with Google. Please try again.")
+		a.fail(w, r, http.StatusServiceUnavailable, "Could not verify availability with Google. Please try again.")
 		return
 	}
 	available := false
@@ -279,22 +279,22 @@ func (a *App) book(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !available {
-		a.fail(w, r, 409, "That time is no longer available. Please choose another slot.")
+		a.fail(w, r, http.StatusConflict, "That time is no longer available. Please choose another slot.")
 		return
 	}
 	b := Booking{ID: id, UserID: u.ID, CalendarID: u.WriteCalendar.Int64, GuestName: name, GuestEmail: email, Start: start, End: start + int64(t.Duration*60), BlockStart: start - int64(t.Buffer*60), BlockEnd: start + int64((t.Duration+t.Buffer)*60), Title: t.Name + ": " + name + " / " + u.Name, Location: location, Meet: meet, Timezone: t.Timezone, GuestTimezone: guestTZ, ManageToken: token, Status: "pending", Created: time.Now().Unix()}
 	if e = a.reserve(r.Context(), b); e != nil {
 		if existing, err := a.getBooking(r.Context(), token); err == nil {
-			http.Redirect(w, r, "/manage/"+existing.ManageToken, 303)
+			http.Redirect(w, r, "/manage/"+existing.ManageToken, http.StatusSeeOther)
 			return
 		}
 		if strings.Contains(e.Error(), "slot_overlap") {
-			a.fail(w, r, 409, "Someone just booked this time. Please choose another slot.")
+			a.fail(w, r, http.StatusConflict, "Someone just booked this time. Please choose another slot.")
 		} else {
 			a.internal(w, r, e)
 		}
 		return
 	}
 	// Respond quickly. The durable worker confirms with Google and sends its invitation.
-	http.Redirect(w, r, "/manage/"+token, 303)
+	http.Redirect(w, r, "/manage/"+token, http.StatusSeeOther)
 }

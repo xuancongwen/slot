@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
 
 type Span struct{ Start, End time.Time }
 
+// A Slot is a bookable start time. Label is filled in for display, in the viewer's timezone.
 type Slot struct {
 	Start int64
 	Label string
@@ -53,7 +55,7 @@ func generateSlots(mt MeetingType, day time.Time, now time.Time, busy []Span) []
 			}
 		}
 		if available {
-			out = append(out, Slot{Start: t.Unix(), Label: local.Format("15:04 MST (UTC-07:00)")})
+			out = append(out, Slot{Start: t.Unix()})
 		}
 	}
 	return out
@@ -75,21 +77,8 @@ func (a *App) availability(ctx context.Context, u User, t MeetingType, from, to 
 	for d := first; d.Before(to); d = d.AddDate(0, 0, 1) {
 		days = append(days, d)
 	}
-	blocked := map[string]bool{}
-	rows, e := a.db.QueryContext(ctx, "SELECT day FROM blocks WHERE user_id=? AND day BETWEEN ? AND ?", u.ID, days[0].Format("2006-01-02"), days[len(days)-1].Format("2006-01-02"))
+	blockedDays, e := queryAll(ctx, a.db, scanString, "SELECT day FROM blocks WHERE user_id=? AND day BETWEEN ? AND ?", u.ID, days[0].Format(dateLayout), days[len(days)-1].Format(dateLayout))
 	if e != nil {
-		return nil, e
-	}
-	for rows.Next() {
-		var day string
-		if e = rows.Scan(&day); e != nil {
-			rows.Close()
-			return nil, e
-		}
-		blocked[day] = true
-	}
-	rows.Close()
-	if e = rows.Err(); e != nil {
 		return nil, e
 	}
 	padding := time.Duration(t.Buffer) * time.Minute
@@ -105,7 +94,7 @@ func (a *App) availability(ctx context.Context, u User, t MeetingType, from, to 
 		if c.CheckBusy || c.ID == u.WriteCalendar.Int64 {
 			selected = append(selected, c)
 		}
-		if c.ID == u.WriteCalendar.Int64 && (c.Role == "owner" || c.Role == "writer") {
+		if c.ID == u.WriteCalendar.Int64 && c.Writable() {
 			hasWrite = true
 		}
 	}
@@ -116,24 +105,18 @@ func (a *App) availability(ctx context.Context, u User, t MeetingType, from, to 
 	if e != nil {
 		return nil, e
 	}
-	rows, e = a.db.QueryContext(ctx, `SELECT block_start,block_end FROM bookings WHERE user_id=? AND status IN ('pending','confirmed','cancel_pending') AND block_start<? AND block_end>?`, u.ID, busyTo.Unix(), busyFrom.Unix())
+	reserved, e := queryAll(ctx, a.db, func(s scanner) (Span, error) {
+		var start, end int64
+		e := s.Scan(&start, &end)
+		return Span{time.Unix(start, 0), time.Unix(end, 0)}, e
+	}, `SELECT block_start,block_end FROM bookings WHERE user_id=? AND status IN ('pending','confirmed','cancel_pending') AND block_start<? AND block_end>?`, u.ID, busyTo.Unix(), busyFrom.Unix())
 	if e != nil {
 		return nil, e
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var start, end int64
-		if e = rows.Scan(&start, &end); e != nil {
-			return nil, e
-		}
-		busy = append(busy, Span{time.Unix(start, 0), time.Unix(end, 0)})
-	}
-	if e = rows.Err(); e != nil {
-		return nil, e
-	}
+	busy = append(busy, reserved...)
 	var out []Slot
 	for _, d := range days {
-		if blocked[d.Format("2006-01-02")] {
+		if slices.Contains(blockedDays, d.Format(dateLayout)) {
 			continue
 		}
 		for _, s := range generateSlots(t, d, now, busy) {

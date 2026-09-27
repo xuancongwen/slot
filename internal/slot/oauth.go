@@ -13,7 +13,7 @@ import (
 
 func (a *App) oauthStart(w http.ResponseWriter, r *http.Request) {
 	if a.cfg.GoogleClientID == "" {
-		a.fail(w, r, 400, "Google OAuth is not configured. Set the Google client environment variables and restart.")
+		a.fail(w, r, http.StatusBadRequest, "Google OAuth is not configured. Set the Google client environment variables and restart.")
 		return
 	}
 	u := currentUser(r)
@@ -26,7 +26,7 @@ func (a *App) oauthStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// OAuth crosses origins intentionally; this redirect is issued only after a CSRF-checked POST.
-	http.Redirect(w, r, a.oauth.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.S256ChallengeOption(verifier), oauth2.SetAuthURLParam("prompt", "consent select_account")), 303)
+	http.Redirect(w, r, a.oauth.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.S256ChallengeOption(verifier), oauth2.SetAuthURLParam("prompt", "consent select_account")), http.StatusSeeOther)
 }
 
 func (a *App) oauthCallback(w http.ResponseWriter, r *http.Request) {
@@ -35,11 +35,11 @@ func (a *App) oauthCallback(w http.ResponseWriter, r *http.Request) {
 	var verifier string
 	e := a.db.QueryRowContext(r.Context(), `DELETE FROM oauth_states WHERE state=? AND user_id=? AND session=? AND expires>? RETURNING verifier`, hashToken(r.URL.Query().Get("state")), u.ID, hashToken(cookie.Value), time.Now().Unix()).Scan(&verifier)
 	if e != nil {
-		a.fail(w, r, 400, "Google connection expired or belongs to a different session. Please try again.")
+		a.fail(w, r, http.StatusBadRequest, "Google connection expired or belongs to a different session. Please try again.")
 		return
 	}
 	if r.URL.Query().Get("error") != "" {
-		a.fail(w, r, 400, "Google connection was not approved. Please try again when ready.")
+		a.fail(w, r, http.StatusBadRequest, "Google connection was not approved. Please try again when ready.")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
@@ -47,17 +47,17 @@ func (a *App) oauthCallback(w http.ResponseWriter, r *http.Request) {
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, a.http)
 	t, e := a.oauth.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(verifier))
 	if e != nil {
-		a.fail(w, r, 502, "Google authorization could not be completed. Check the client configuration and try again.")
+		a.fail(w, r, http.StatusBadGateway, "Google authorization could not be completed. Check the client configuration and try again.")
 		return
 	}
 	if t.RefreshToken == "" {
-		a.fail(w, r, 400, "Google did not grant offline access. Reconnect and approve all requested permissions.")
+		a.fail(w, r, http.StatusBadRequest, "Google did not grant offline access. Reconnect and approve all requested permissions.")
 		return
 	}
 	g := a.google.(*Google)
 	cs, e := g.list(ctx, t.AccessToken)
 	if e != nil {
-		a.fail(w, r, 502, "Calendar list unavailable. Approve all requested Google Calendar permissions and reconnect.")
+		a.fail(w, r, http.StatusBadGateway, "Calendar list unavailable. Approve all requested Google Calendar permissions and reconnect.")
 		return
 	}
 	identity := ""
@@ -68,7 +68,7 @@ func (a *App) oauthCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if identity == "" {
-		a.fail(w, r, 400, "No primary Google Calendar was found.")
+		a.fail(w, r, http.StatusBadRequest, "No primary Google Calendar was found.")
 		return
 	}
 	data, e := json.Marshal(t)
@@ -76,25 +76,18 @@ func (a *App) oauthCallback(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	tx, e := a.db.BeginTx(ctx, nil)
+	e = a.inTx(ctx, func(tx *sql.Tx) error {
+		var account int64
+		if e := tx.QueryRowContext(ctx, `INSERT INTO accounts(user_id,identity,token) VALUES(?,?,?) ON CONFLICT(user_id,identity) DO UPDATE SET token=excluded.token RETURNING id`, u.ID, identity, a.seal(data)).Scan(&account); e != nil {
+			return e
+		}
+		return saveCalendars(ctx, tx, account, cs)
+	})
 	if e != nil {
 		a.internal(w, r, e)
 		return
 	}
-	defer tx.Rollback()
-	var account int64
-	e = tx.QueryRowContext(ctx, `INSERT INTO accounts(user_id,identity,token) VALUES(?,?,?) ON CONFLICT(user_id,identity) DO UPDATE SET token=excluded.token RETURNING id`, u.ID, identity, a.seal(data)).Scan(&account)
-	if e == nil {
-		e = saveCalendars(ctx, tx, account, cs)
-	}
-	if e == nil {
-		e = tx.Commit()
-	}
-	if e != nil {
-		a.internal(w, r, e)
-		return
-	}
-	http.Redirect(w, r, "/?notice=connected", 303)
+	http.Redirect(w, r, "/?notice=connected", http.StatusSeeOther)
 }
 
 func saveCalendars(ctx context.Context, tx *sql.Tx, account int64, cs []remoteCalendar) error {
@@ -114,7 +107,7 @@ func (a *App) refreshCalendars(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	id, e := strconv.ParseInt(r.PostForm.Get("account"), 10, 64)
 	if e != nil {
-		a.fail(w, r, 400, "Invalid account")
+		a.fail(w, r, http.StatusBadRequest, "Invalid account")
 		return
 	}
 	var owner int64
@@ -125,27 +118,18 @@ func (a *App) refreshCalendars(w http.ResponseWriter, r *http.Request) {
 	g := a.google.(*Google)
 	token, e := g.token(r.Context(), id)
 	if e != nil {
-		a.fail(w, r, 502, "Reconnect this Google account.")
+		a.fail(w, r, http.StatusBadGateway, "Reconnect this Google account.")
 		return
 	}
 	cs, e := g.list(r.Context(), token)
 	if e != nil {
-		a.fail(w, r, 502, "Could not refresh calendars. Please try again.")
+		a.fail(w, r, http.StatusBadGateway, "Could not refresh calendars. Please try again.")
 		return
 	}
-	tx, e := a.db.BeginTx(r.Context(), nil)
+	e = a.inTx(r.Context(), func(tx *sql.Tx) error { return saveCalendars(r.Context(), tx, id, cs) })
 	if e != nil {
 		a.internal(w, r, e)
 		return
 	}
-	defer tx.Rollback()
-	e = saveCalendars(r.Context(), tx, id, cs)
-	if e == nil {
-		e = tx.Commit()
-	}
-	if e != nil {
-		a.internal(w, r, e)
-		return
-	}
-	http.Redirect(w, r, "/?notice=refreshed", 303)
+	http.Redirect(w, r, "/?notice=refreshed", http.StatusSeeOther)
 }

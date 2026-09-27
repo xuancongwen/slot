@@ -2,7 +2,6 @@ package slot
 
 import (
 	"context"
-	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
@@ -56,8 +55,7 @@ func TestPublicBookingFlow(t *testing.T) {
 	mt := chatType(t, a, u)
 	h := a.publicHandler()
 	day := tomorrow()
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("GET", "/b/alex/chat?tz=UTC&date="+day.Format("2006-01-02"), nil))
+	w := getRequest(h, "/b/alex/chat?tz=UTC&date="+day.Format("2006-01-02"))
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "Choose a day") {
 		t.Fatalf("page: %d %s", w.Code, w.Body)
 	}
@@ -78,8 +76,7 @@ func TestPublicBookingFlow(t *testing.T) {
 	if n != 1 || f.insertCalls != 1 {
 		t.Fatal("duplicate booking")
 	}
-	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("GET", manage, nil))
+	w = getRequest(h, manage)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "Download calendar event") || !strings.Contains(w.Body.String(), fakeMeetLink) {
 		t.Fatalf("manage: %d %s", w.Code, w.Body)
 	}
@@ -89,8 +86,7 @@ func TestPublicBookingFlow(t *testing.T) {
 	if want := day.In(mustLoad(t, "Asia/Singapore")).Format("15:04"); !strings.Contains(w.Body.String(), want) {
 		t.Fatalf("manage page not in guest timezone, want %s", want)
 	}
-	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("GET", manage+"/event.ics", nil))
+	w = getRequest(h, manage+"/event.ics")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "BEGIN:VEVENT") {
 		t.Fatal("ICS missing")
 	}
@@ -108,21 +104,16 @@ func TestHostPageListsActiveTypes(t *testing.T) {
 	a, _ := testApp(t)
 	u := seedHost(t, a, "alex")
 	h := a.publicHandler()
-	get := func(path string) *httptest.ResponseRecorder {
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
-		return w
-	}
-	if w := get("/b/alex"); w.Code != 302 || w.Header().Get("Location") != "/b/alex/chat" {
+	if w := getRequest(h, "/b/alex"); w.Code != 302 || w.Header().Get("Location") != "/b/alex/chat" {
 		t.Fatalf("single type should redirect: %d %s", w.Code, w.Header().Get("Location"))
 	}
 	a.db.Exec("INSERT INTO meeting_types(user_id,slug,name) VALUES(?,'deep','Deep dive')", u.ID)
 	a.db.Exec("INSERT INTO meeting_types(user_id,slug,name,active) VALUES(?,'hidden','Secret',0)", u.ID)
-	w := get("/b/alex")
+	w := getRequest(h, "/b/alex")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "Deep dive") || !strings.Contains(w.Body.String(), "Chat") || strings.Contains(w.Body.String(), "Secret") {
 		t.Fatalf("type list: %d %s", w.Code, w.Body)
 	}
-	if w := get("/b/alex/hidden"); w.Code != 404 {
+	if w := getRequest(h, "/b/alex/hidden"); w.Code != 404 {
 		t.Fatalf("inactive type reachable: %d", w.Code)
 	}
 }
@@ -133,8 +124,7 @@ func TestGuestCalendarPage(t *testing.T) {
 	h := a.publicHandler()
 	get := func(path string) string {
 		t.Helper()
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		w := getRequest(h, path)
 		if w.Code != 200 {
 			t.Fatalf("%s: %d %s", path, w.Code, w.Body)
 		}

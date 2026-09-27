@@ -151,6 +151,15 @@ func formRequest(h http.Handler, path string, form url.Values, admin bool, extra
 	return w
 }
 
+func getRequest(h http.Handler, path string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+	r := httptest.NewRequest("GET", path, nil)
+	for _, c := range cookies {
+		r.AddCookie(c)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	return w
+}
 func sessionFor(t *testing.T, a *App, u User) *http.Cookie {
 	t.Helper()
 	s := randomHex(32)

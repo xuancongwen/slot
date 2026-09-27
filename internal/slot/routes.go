@@ -22,7 +22,7 @@ type Page struct {
 	Timezones                                           []string
 	Slots                                               []Slot
 	Weeks                                               [][]CalendarDay
-	Date, BookingURL, PublicURL                         string
+	Date, BookingURL                                    string
 	Month, MonthLabel, PrevMonth, NextMonth             string
 	GuestTimezone, SelectedLabel                        string
 	DetectTimezone                                      bool
@@ -33,11 +33,10 @@ type Page struct {
 
 func (a *App) render(w http.ResponseWriter, r *http.Request, name string, p Page, status int) {
 	p.CSRF = a.csrfToken(w, r, p.Admin)
-	p.PublicURL = a.cfg.PublicURL
 	var buf bytes.Buffer
 	if e := a.templates.ExecuteTemplate(&buf, name, p); e != nil {
 		slog.Error("render", "template", name, "error", e)
-		http.Error(w, "Could not render page", 500)
+		http.Error(w, "Could not render page", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -51,7 +50,7 @@ func (a *App) fail(w http.ResponseWriter, r *http.Request, status int, message s
 
 func (a *App) internal(w http.ResponseWriter, r *http.Request, e error) {
 	slog.Error("request", "path", r.URL.Path, "error", e)
-	a.fail(w, r, 500, "Something went wrong. Please try again.")
+	a.fail(w, r, http.StatusInternalServerError, "Something went wrong. Please try again.")
 }
 
 func (a *App) commonRoutes(m *http.ServeMux) {
@@ -59,7 +58,7 @@ func (a *App) commonRoutes(m *http.ServeMux) {
 	m.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(sub)))
 	m.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if e := a.db.PingContext(r.Context()); e != nil {
-			http.Error(w, "unhealthy", 503)
+			http.Error(w, "unhealthy", http.StatusServiceUnavailable)
 			return
 		}
 		w.Write([]byte("ok\n"))
@@ -70,7 +69,7 @@ func (a *App) publicHandler() http.Handler {
 	m := http.NewServeMux()
 	a.commonRoutes(m)
 	m.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		a.render(w, r, "home", Page{Title: "Home"}, 200)
+		a.render(w, r, "home", Page{Title: "Home"}, http.StatusOK)
 	})
 	m.HandleFunc("GET /b/{slug}", a.hostPage)
 	m.HandleFunc("GET /b/{slug}/{type}", a.publicPage)

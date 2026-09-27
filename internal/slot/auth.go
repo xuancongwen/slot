@@ -5,6 +5,7 @@ import (
 	"crypto/pbkdf2"
 	"crypto/sha256"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/hex"
 	"net/http"
 	"strings"
@@ -38,18 +39,18 @@ func (a *App) authenticated(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, e := r.Cookie("slot_session")
 		if e != nil {
-			http.Redirect(w, r, "/login", 303)
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
 		var uid int64
 		e = a.db.QueryRowContext(r.Context(), "SELECT user_id FROM sessions WHERE token=? AND expires>?", hashToken(c.Value), time.Now().Unix()).Scan(&uid)
 		if e != nil {
-			http.Redirect(w, r, "/login", 303)
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
 		u, e := a.userByID(r.Context(), uid)
 		if e != nil {
-			http.Error(w, "Account unavailable", 500)
+			http.Error(w, "Account unavailable", http.StatusInternalServerError)
 			return
 		}
 		h(w, r.WithContext(context.WithValue(r.Context(), userKey, u)))
@@ -71,14 +72,14 @@ func (a *App) loginSession(w http.ResponseWriter, r *http.Request, id int64) err
 func (a *App) authPage(w http.ResponseWriter, r *http.Request) {
 	reg := r.URL.Path == "/register"
 	if reg && !a.cfg.RegistrationOpen {
-		a.fail(w, r, 403, "Registration is closed on this server.")
+		a.fail(w, r, http.StatusForbidden, "Registration is closed on this server.")
 		return
 	}
 	title := "Sign in"
 	if reg {
 		title = "Create account"
 	}
-	a.render(w, r, "auth", Page{Title: title, Admin: true, Register: reg, RegistrationOpen: a.cfg.RegistrationOpen}, 200)
+	a.render(w, r, "auth", Page{Title: title, Admin: true, Register: reg, RegistrationOpen: a.cfg.RegistrationOpen}, http.StatusOK)
 }
 
 func (a *App) authCapacity(w http.ResponseWriter) bool {
@@ -86,18 +87,18 @@ func (a *App) authCapacity(w http.ResponseWriter) bool {
 	case a.authSlots <- struct{}{}:
 		return true
 	default:
-		http.Error(w, "Please try again in a moment", 429)
+		http.Error(w, "Please try again in a moment", http.StatusTooManyRequests)
 		return false
 	}
 }
 
 func (a *App) register(w http.ResponseWriter, r *http.Request) {
 	if !a.cfg.RegistrationOpen {
-		a.fail(w, r, 403, "Registration is closed.")
+		a.fail(w, r, http.StatusForbidden, "Registration is closed.")
 		return
 	}
 	if a.cfg.RegistrationCode != "" && subtle.ConstantTimeCompare([]byte(r.PostForm.Get("code")), []byte(a.cfg.RegistrationCode)) != 1 {
-		a.fail(w, r, 403, "The registration code is incorrect.")
+		a.fail(w, r, http.StatusForbidden, "The registration code is incorrect.")
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(r.PostForm.Get("email")))
@@ -105,7 +106,7 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 	slug := strings.ToLower(strings.TrimSpace(r.PostForm.Get("slug")))
 	password := r.PostForm.Get("password")
 	if !validEmail(email) || len(name) < 1 || len(name) > 100 || !slugPattern.MatchString(slug) || len(password) < 12 || len(password) > 256 {
-		a.fail(w, r, 400, "Use a valid email, a name up to 100 characters, a URL name of 1–40 lowercase letters/digits/hyphens, and a password of 12–256 characters.")
+		a.fail(w, r, http.StatusBadRequest, "Use a valid email, a name up to 100 characters, a URL name of 1–40 lowercase letters/digits/hyphens, and a password of 12–256 characters.")
 		return
 	}
 	if !a.authCapacity(w) {
@@ -118,32 +119,24 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 	if !validTimezone(tz) {
 		tz = "UTC"
 	}
-	tx, e := a.db.BeginTx(r.Context(), nil)
-	if e != nil {
-		a.internal(w, r, e)
-		return
-	}
-	defer tx.Rollback()
 	var id int64
-	e = tx.QueryRowContext(r.Context(), "INSERT INTO users(email,password,name,slug,created) VALUES(?,?,?,?,?) RETURNING id", email, hash, name, slug, time.Now().Unix()).Scan(&id)
-	if e != nil {
-		if strings.Contains(e.Error(), "UNIQUE") {
-			a.fail(w, r, 409, "That email or booking URL is already registered.")
-		} else {
-			a.internal(w, r, e)
+	e := a.inTx(r.Context(), func(tx *sql.Tx) error {
+		if e := tx.QueryRowContext(r.Context(), "INSERT INTO users(email,password,name,slug,created) VALUES(?,?,?,?,?) RETURNING id", email, hash, name, slug, time.Now().Unix()).Scan(&id); e != nil {
+			return e
 		}
+		if _, e := tx.ExecContext(r.Context(), "INSERT INTO meeting_types(user_id,slug,name,timezone) VALUES(?,'30min','30 minute meeting',?)", id, tz); e != nil {
+			return e
+		}
+		var meet int64
+		if e := tx.QueryRowContext(r.Context(), "INSERT INTO locations(user_id,kind,label) VALUES(?,'meet','Google Meet') RETURNING id", id).Scan(&meet); e != nil {
+			return e
+		}
+		_, e := tx.ExecContext(r.Context(), "UPDATE users SET default_location=? WHERE id=?", meet, id)
+		return e
+	})
+	if e != nil && strings.Contains(e.Error(), "UNIQUE") {
+		a.fail(w, r, http.StatusConflict, "That email or booking URL is already registered.")
 		return
-	}
-	_, e = tx.ExecContext(r.Context(), "INSERT INTO meeting_types(user_id,slug,name,timezone) VALUES(?,'30min','30 minute meeting',?)", id, tz)
-	var meet int64
-	if e == nil {
-		e = tx.QueryRowContext(r.Context(), "INSERT INTO locations(user_id,kind,label) VALUES(?,'meet','Google Meet') RETURNING id", id).Scan(&meet)
-	}
-	if e == nil {
-		_, e = tx.ExecContext(r.Context(), "UPDATE users SET default_location=? WHERE id=?", meet, id)
-	}
-	if e == nil {
-		e = tx.Commit()
 	}
 	if e == nil {
 		e = a.loginSession(w, r, id)
@@ -152,13 +145,13 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/", 303)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (a *App) login(w http.ResponseWriter, r *http.Request) {
 	password := r.PostForm.Get("password")
 	if len(password) > 256 {
-		a.fail(w, r, 400, "Invalid credentials")
+		a.fail(w, r, http.StatusBadRequest, "Invalid credentials")
 		return
 	}
 	if !a.authCapacity(w) {
@@ -172,14 +165,14 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 	}
 	match := passwordMatches(hash, password)
 	if e != nil || !match {
-		a.render(w, r, "auth", Page{Title: "Sign in", Admin: true, RegistrationOpen: a.cfg.RegistrationOpen, Error: "Email or password is incorrect."}, 401)
+		a.render(w, r, "auth", Page{Title: "Sign in", Admin: true, RegistrationOpen: a.cfg.RegistrationOpen, Error: "Email or password is incorrect."}, http.StatusUnauthorized)
 		return
 	}
 	if e = a.loginSession(w, r, u.ID); e != nil {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/", 303)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (a *App) logout(w http.ResponseWriter, r *http.Request) {
@@ -189,14 +182,14 @@ func (a *App) logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.cookie(w, "slot_session", "", -1, true)
-	http.Redirect(w, r, "/login", 303)
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
 func (a *App) changePassword(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	old, newPass := r.PostForm.Get("old_password"), r.PostForm.Get("new_password")
 	if len(old) > 256 || len(newPass) < 12 || len(newPass) > 256 {
-		a.fail(w, r, 400, "Password must be 12–256 characters.")
+		a.fail(w, r, http.StatusBadRequest, "Password must be 12–256 characters.")
 		return
 	}
 	if !a.authCapacity(w) {
@@ -204,23 +197,17 @@ func (a *App) changePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { <-a.authSlots }()
 	if !passwordMatches(u.Password, old) {
-		a.fail(w, r, 403, "Current password is incorrect.")
+		a.fail(w, r, http.StatusForbidden, "Current password is incorrect.")
 		return
 	}
 	hash := passwordHash(newPass)
-	tx, e := a.db.BeginTx(r.Context(), nil)
-	if e != nil {
-		a.internal(w, r, e)
-		return
-	}
-	defer tx.Rollback()
-	_, e = tx.ExecContext(r.Context(), "UPDATE users SET password=? WHERE id=?", hash, u.ID)
-	if e == nil {
-		_, e = tx.ExecContext(r.Context(), "DELETE FROM sessions WHERE user_id=?", u.ID)
-	}
-	if e == nil {
-		e = tx.Commit()
-	}
+	e := a.inTx(r.Context(), func(tx *sql.Tx) error {
+		if _, e := tx.ExecContext(r.Context(), "UPDATE users SET password=? WHERE id=?", hash, u.ID); e != nil {
+			return e
+		}
+		_, e := tx.ExecContext(r.Context(), "DELETE FROM sessions WHERE user_id=?", u.ID)
+		return e
+	})
 	if e == nil {
 		e = a.loginSession(w, r, u.ID)
 	}
@@ -228,5 +215,5 @@ func (a *App) changePassword(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/?notice=password", 303)
+	http.Redirect(w, r, "/?notice=password", http.StatusSeeOther)
 }

@@ -24,7 +24,7 @@ func (a *App) manage(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	a.render(w, r, "manage", Page{Title: "Your booking", Booking: b, User: u}, 200)
+	a.render(w, r, "manage", Page{Title: "Your booking", Booking: b, User: u}, http.StatusOK)
 }
 
 func (a *App) cancelPublic(w http.ResponseWriter, r *http.Request) {
@@ -41,7 +41,7 @@ func (a *App) cancelPublic(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/manage/"+b.ManageToken, 303)
+	http.Redirect(w, r, "/manage/"+b.ManageToken, http.StatusSeeOther)
 }
 
 func (a *App) ownedBooking(r *http.Request) (Booking, error) {
@@ -58,7 +58,7 @@ func (a *App) cancelAdmin(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	http.Redirect(w, r, "/?notice=cancelled", 303)
+	http.Redirect(w, r, "/?notice=cancelled", http.StatusSeeOther)
 }
 
 func (a *App) retryAdmin(w http.ResponseWriter, r *http.Request) {
@@ -68,7 +68,7 @@ func (a *App) retryAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.syncBooking(r.Context(), b.ID)
-	http.Redirect(w, r, "/?notice=retry", 303)
+	http.Redirect(w, r, "/?notice=retry", http.StatusSeeOther)
 }
 
 func icsEscape(s string) string {
