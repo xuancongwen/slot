@@ -1,0 +1,14 @@
+{{define "host"}}{{template "head" .}}
+<main class="narrow">
+  <section class="card">
+    <h1>Meet with<br>{{.User.Name}}</h1>
+    <div class="type-list">
+      {{range .MeetingTypes}}
+      <a class="slot" href="{{$.BookingURL}}/{{.Slug}}"><span><strong>{{.Name}}</strong><small>{{.Duration}} minutes</small></span><span>↗</span></a>
+      {{else}}
+      <div class="empty"><p>No meetings are open for booking right now.</p></div>
+      {{end}}
+    </div>
+  </section>
+</main>
+{{template "foot" .}}{{end}}

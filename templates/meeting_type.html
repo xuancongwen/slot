@@ -1,0 +1,66 @@
+{{define "meeting_type"}}{{template "head" .}}
+<main class="workspace narrow-workspace">
+  <a class="back-link" href="/">← Back to dashboard</a>
+  <h1>{{.Title}}</h1>
+  <section class="card">
+    <form method="post" action="{{if .MeetingType.ID}}/types/{{.MeetingType.ID}}{{else}}/types{{end}}">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <h2>Details</h2>
+      <div class="form-grid">
+        <label>Name
+          <input name="name" value="{{.MeetingType.Name}}" maxlength="100" required placeholder="30 minute chat">
+        </label>
+        <label>URL
+          <input name="slug" value="{{.MeetingType.Slug}}" pattern="[a-z0-9][a-z0-9-]{0,39}" maxlength="40" required placeholder="chat">
+          <span class="hint">{{.BookingURL}}/{{if .MeetingType.Slug}}{{.MeetingType.Slug}}{{else}}your-type{{end}}</span>
+        </label>
+        <label>Length <span class="optional">minutes</span>
+          <input type="number" name="duration" min="5" max="240" value="{{.MeetingType.Duration}}" required>
+        </label>
+      </div>
+
+      <h2>When</h2>
+      <label>Timezone
+        <input name="timezone" value="{{.MeetingType.Timezone}}" list="timezones" autocomplete="off" required placeholder="America/Los_Angeles" data-detect-timezone>
+        <span class="hint">{{if .MeetingType.Timezone}}Currently {{utcOffset .MeetingType.Timezone}}. {{end}}Where you’ll be for these meetings. Start typing a city.</span>
+      </label>
+      {{template "timezones" .}}
+      <fieldset>
+        <legend>Available days</legend>
+        <div class="day-options">
+          {{range .Days}}<label><input type="checkbox" name="days" value="{{.Number}}" {{if hasDay $.MeetingType.Days .Number}}checked{{end}}><span>{{.Name}}</span></label>{{end}}
+        </div>
+      </fieldset>
+      <div class="form-grid">
+        <label>From
+          <input type="time" name="start" value="{{clock .MeetingType.StartMin}}" required>
+        </label>
+        <label>Until
+          <input type="time" name="end" value="{{clock .MeetingType.EndMin}}" required>
+        </label>
+      </div>
+
+      <h2>Limits</h2>
+      <div class="form-grid">
+        <label>Buffer on each side <span class="optional">minutes</span>
+          <input type="number" name="buffer" min="0" max="120" value="{{.MeetingType.Buffer}}" required>
+        </label>
+        <label>Minimum notice <span class="optional">minutes</span>
+          <input type="number" name="notice" min="0" max="43200" value="{{.MeetingType.Notice}}" required>
+        </label>
+        <label>Book ahead <span class="optional">days</span>
+          <input type="number" name="horizon" min="1" max="90" value="{{.MeetingType.Horizon}}" required>
+        </label>
+      </div>
+      <label class="check-row"><input type="checkbox" name="active" {{if .MeetingType.Active}}checked{{end}}>Guests can book this type</label>
+      <button>Save meeting type</button>
+    </form>
+    {{if .MeetingType.ID}}
+    <form method="post" action="/types/{{.MeetingType.ID}}/delete" data-confirm="Delete this meeting type? Existing bookings stay in place.">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button class="text-button danger">Delete meeting type</button>
+    </form>
+    {{end}}
+  </section>
+</main>
+{{template "foot" .}}{{end}}

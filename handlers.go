@@ -28,6 +28,9 @@ type Page struct {
 	Bookings                                            []Booking
 	Blocks                                              []string
 	Days                                                []DayOption
+	MeetingTypes                                        []MeetingType
+	MeetingType                                         MeetingType
+	Timezones                                           []string
 	Slots                                               []Slot
 	Date, MinDate, MaxDate, BookingURL, PublicURL       string
 	Booking                                             Booking
@@ -83,8 +86,9 @@ func (a *App) publicHandler() http.Handler {
 	m.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		a.render(w, r, "home", Page{Title: "Home"}, 200)
 	})
-	m.HandleFunc("GET /b/{slug}", a.publicPage)
-	m.HandleFunc("POST /b/{slug}", a.book)
+	m.HandleFunc("GET /b/{slug}", a.hostPage)
+	m.HandleFunc("GET /b/{slug}/{type}", a.publicPage)
+	m.HandleFunc("POST /b/{slug}/{type}", a.book)
 	m.HandleFunc("GET /manage/{token}", a.manage)
 	m.HandleFunc("POST /manage/{token}/cancel", a.cancelPublic)
 	m.HandleFunc("GET /manage/{token}/event.ics", a.ics)
@@ -100,6 +104,11 @@ func (a *App) adminHandler() http.Handler {
 	m.HandleFunc("GET /{$}", a.authenticated(a.dashboard))
 	m.HandleFunc("POST /logout", a.authenticated(a.logout))
 	m.HandleFunc("POST /settings", a.authenticated(a.settings))
+	m.HandleFunc("GET /types/new", a.authenticated(a.meetingTypePage))
+	m.HandleFunc("POST /types", a.authenticated(a.saveMeetingType))
+	m.HandleFunc("GET /types/{id}", a.authenticated(a.meetingTypePage))
+	m.HandleFunc("POST /types/{id}", a.authenticated(a.saveMeetingType))
+	m.HandleFunc("POST /types/{id}/delete", a.authenticated(a.deleteMeetingType))
 	m.HandleFunc("POST /calendars", a.authenticated(a.saveCalendarSettings))
 	m.HandleFunc("POST /blocks", a.authenticated(a.blockDay))
 	m.HandleFunc("POST /blocks/delete", a.authenticated(a.unblockDay))
@@ -158,7 +167,19 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 	}
 	hash := passwordHash(password)
 	<-a.authSlots
-	res, e := a.db.ExecContext(r.Context(), "INSERT INTO users(email,password,name,slug,created) VALUES(?,?,?,?,?)", email, hash, name, slug, time.Now().Unix())
+	// The browser fills in its own timezone; without JavaScript the starter type uses UTC.
+	tz := r.PostForm.Get("timezone")
+	if !validTimezone(tz) {
+		tz = "UTC"
+	}
+	tx, e := a.db.BeginTx(r.Context(), nil)
+	if e != nil {
+		a.internal(w, r, e)
+		return
+	}
+	defer tx.Rollback()
+	var id int64
+	e = tx.QueryRowContext(r.Context(), "INSERT INTO users(email,password,name,slug,created) VALUES(?,?,?,?,?) RETURNING id", email, hash, name, slug, time.Now().Unix()).Scan(&id)
 	if e != nil {
 		if strings.Contains(e.Error(), "UNIQUE") {
 			a.fail(w, r, 409, "That email or booking URL is already registered.")
@@ -167,7 +188,10 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	id, e := res.LastInsertId()
+	_, e = tx.ExecContext(r.Context(), "INSERT INTO meeting_types(user_id,slug,name,timezone) VALUES(?,'30min','30 minute meeting',?)", id, tz)
+	if e == nil {
+		e = tx.Commit()
+	}
 	if e == nil {
 		e = a.loginSession(w, r, id)
 	}
@@ -221,6 +245,11 @@ func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
+	p.MeetingTypes, e = a.meetingTypes(r.Context(), u.ID, false)
+	if e != nil {
+		a.internal(w, r, e)
+		return
+	}
 	p.Bookings, e = a.hostBookings(r.Context(), u.ID)
 	if e != nil {
 		a.internal(w, r, e)
@@ -262,7 +291,7 @@ func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, errors.Join(e, rowErr))
 		return
 	}
-	notices := map[string]string{"saved": "Your settings are saved.", "connected": "Google account connected. Choose which calendars to check and where bookings should go.", "refreshed": "Calendar list refreshed.", "cancelled": "Cancellation requested. The slot stays reserved until Google confirms.", "retry": "Calendar sync retried.", "password": "Password changed. Other sessions have been signed out."}
+	notices := map[string]string{"saved": "Your settings are saved.", "connected": "Google account connected. Choose which calendars to check and where bookings should go.", "refreshed": "Calendar list refreshed.", "cancelled": "Cancellation requested. The slot stays reserved until Google confirms.", "retry": "Calendar sync retried.", "password": "Password changed. Other sessions have been signed out.", "deleted": "Meeting type deleted."}
 	p.Notice = notices[r.URL.Query().Get("notice")]
 	a.render(w, r, "dashboard", p, 200)
 }
@@ -273,43 +302,111 @@ func parseMinutes(s string) (int, error) {
 	}
 	return t.Hour()*60 + t.Minute(), nil
 }
+
+// "Local" would silently follow the server's zone rather than the host's.
+func validTimezone(tz string) bool {
+	_, e := time.LoadLocation(tz)
+	return tz != "" && tz != "Local" && e == nil
+}
 func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
-	f := r.PostForm
-	name := strings.TrimSpace(f.Get("name"))
-	tz := f.Get("timezone")
-	_, tzerr := time.LoadLocation(tz)
-	start, e1 := parseMinutes(f.Get("start"))
-	end, e2 := parseMinutes(f.Get("end"))
-	duration, e3 := strconv.Atoi(f.Get("duration"))
-	buffer, e4 := strconv.Atoi(f.Get("buffer"))
-	notice, e5 := strconv.Atoi(f.Get("notice"))
-	horizon, e6 := strconv.Atoi(f.Get("horizon"))
-	location := strings.TrimSpace(f.Get("location"))
-	if len(name) < 1 || len(name) > 100 || tz == "" || tz == "Local" || tzerr != nil || e1 != nil || e2 != nil || e3 != nil || e4 != nil || e5 != nil || e6 != nil || start >= end || duration < 5 || duration > 240 || duration > end-start || buffer < 0 || buffer > 120 || notice < 0 || notice > 43200 || horizon < 1 || horizon > 90 || len(location) > 500 {
-		a.fail(w, r, 400, "Check the timezone and hours. Duration: 5–240 minutes, buffer: 0–120 minutes, notice: 0–43200 minutes, booking horizon: 1–90 days.")
+	name := strings.TrimSpace(r.PostForm.Get("name"))
+	location := strings.TrimSpace(r.PostForm.Get("location"))
+	if len(name) < 1 || len(name) > 100 || len(location) > 500 {
+		a.fail(w, r, 400, "Use a display name up to 100 characters and a location up to 500.")
 		return
 	}
-	dayset := ""
-	for _, d := range days {
-		for _, v := range f["days"] {
-			if v == strconv.Itoa(d.Number) {
-				dayset += v
-				break
-			}
-		}
-	}
-	enabled := f.Get("enabled") == "on"
-	if enabled && (!u.WriteCalendar.Valid || dayset == "") {
-		a.fail(w, r, 400, "Select a destination calendar and at least one available weekday before publishing.")
+	enabled := r.PostForm.Get("enabled") == "on"
+	if enabled && !u.WriteCalendar.Valid {
+		a.fail(w, r, 400, "Select a destination calendar before publishing.")
 		return
 	}
-	_, e := a.db.ExecContext(r.Context(), `UPDATE users SET name=?,timezone=?,days=?,start_min=?,end_min=?,duration=?,buffer=?,notice=?,horizon=?,location=?,enabled=? WHERE id=?`, name, tz, dayset, start, end, duration, buffer, notice, horizon, location, enabled, u.ID)
+	_, e := a.db.ExecContext(r.Context(), `UPDATE users SET name=?,location=?,enabled=? WHERE id=?`, name, location, enabled, u.ID)
 	if e != nil {
 		a.internal(w, r, e)
 		return
 	}
 	http.Redirect(w, r, "/?notice=saved", 303)
+}
+
+// ownedMeetingType returns the zero MeetingType with no error for /types/new.
+func (a *App) ownedMeetingType(r *http.Request) (MeetingType, error) {
+	if r.PathValue("id") == "" {
+		return MeetingType{Days: "12345", StartMin: 540, EndMin: 1020, Duration: 30, Notice: 120, Horizon: 30, Active: true}, nil
+	}
+	return scanMeetingType(a.db.QueryRowContext(r.Context(), "SELECT "+meetingTypeColumns+" FROM meeting_types WHERE id=? AND user_id=?", r.PathValue("id"), currentUser(r).ID))
+}
+func (a *App) meetingTypePage(w http.ResponseWriter, r *http.Request) {
+	t, e := a.ownedMeetingType(r)
+	if e != nil {
+		http.NotFound(w, r)
+		return
+	}
+	title := "New meeting type"
+	if t.ID != 0 {
+		title = t.Name
+	}
+	a.render(w, r, "meeting_type", Page{Title: title, Admin: true, User: currentUser(r), MeetingType: t, Days: days, Timezones: a.timezones, BookingURL: a.cfg.PublicURL + "/b/" + currentUser(r).Slug}, 200)
+}
+func (a *App) saveMeetingType(w http.ResponseWriter, r *http.Request) {
+	t, e := a.ownedMeetingType(r)
+	if e != nil {
+		http.NotFound(w, r)
+		return
+	}
+	f := r.PostForm
+	var e1, e2, e3, e4, e5, e6 error
+	t.Name = strings.TrimSpace(f.Get("name"))
+	t.Slug = strings.ToLower(strings.TrimSpace(f.Get("slug")))
+	t.Timezone = strings.TrimSpace(f.Get("timezone"))
+	t.StartMin, e1 = parseMinutes(f.Get("start"))
+	t.EndMin, e2 = parseMinutes(f.Get("end"))
+	t.Duration, e3 = strconv.Atoi(f.Get("duration"))
+	t.Buffer, e4 = strconv.Atoi(f.Get("buffer"))
+	t.Notice, e5 = strconv.Atoi(f.Get("notice"))
+	t.Horizon, e6 = strconv.Atoi(f.Get("horizon"))
+	t.Active = f.Get("active") == "on"
+	t.Days = ""
+	for _, d := range days {
+		for _, v := range f["days"] {
+			if v == strconv.Itoa(d.Number) {
+				t.Days += v
+				break
+			}
+		}
+	}
+	if len(t.Name) < 1 || len(t.Name) > 100 || !slugPattern.MatchString(t.Slug) || !validTimezone(t.Timezone) || e1 != nil || e2 != nil || e3 != nil || e4 != nil || e5 != nil || e6 != nil || t.StartMin >= t.EndMin || t.Duration < 5 || t.Duration > 240 || t.Duration > t.EndMin-t.StartMin || t.Buffer < 0 || t.Buffer > 120 || t.Notice < 0 || t.Notice > 43200 || t.Horizon < 1 || t.Horizon > 90 {
+		a.fail(w, r, 400, "Check the name, URL, timezone, and hours. Length: 5–240 minutes, buffer: 0–120 minutes, notice: 0–43200 minutes, booking horizon: 1–90 days.")
+		return
+	}
+	if t.Active && t.Days == "" {
+		a.fail(w, r, 400, "Choose at least one available weekday before turning this meeting type on.")
+		return
+	}
+	u := currentUser(r)
+	if t.ID == 0 {
+		_, e = a.db.ExecContext(r.Context(), `INSERT INTO meeting_types(user_id,slug,name,timezone,days,start_min,end_min,duration,buffer,notice,horizon,active) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, u.ID, t.Slug, t.Name, t.Timezone, t.Days, t.StartMin, t.EndMin, t.Duration, t.Buffer, t.Notice, t.Horizon, t.Active)
+	} else {
+		_, e = a.db.ExecContext(r.Context(), `UPDATE meeting_types SET slug=?,name=?,timezone=?,days=?,start_min=?,end_min=?,duration=?,buffer=?,notice=?,horizon=?,active=? WHERE id=? AND user_id=?`, t.Slug, t.Name, t.Timezone, t.Days, t.StartMin, t.EndMin, t.Duration, t.Buffer, t.Notice, t.Horizon, t.Active, t.ID, u.ID)
+	}
+	if e != nil {
+		if strings.Contains(e.Error(), "UNIQUE") {
+			a.fail(w, r, 409, "You already have a meeting type at that URL.")
+		} else {
+			a.internal(w, r, e)
+		}
+		return
+	}
+	http.Redirect(w, r, "/?notice=saved", 303)
+}
+func (a *App) deleteMeetingType(w http.ResponseWriter, r *http.Request) {
+	// Bookings keep their own copy of title, time, and timezone, so history survives.
+	_, e := a.db.ExecContext(r.Context(), "DELETE FROM meeting_types WHERE id=? AND user_id=?", r.PathValue("id"), currentUser(r).ID)
+	if e != nil {
+		a.internal(w, r, e)
+		return
+	}
+	http.Redirect(w, r, "/?notice=deleted", 303)
 }
 func (a *App) saveCalendarSettings(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
@@ -433,12 +530,44 @@ func (a *App) publicUser(w http.ResponseWriter, r *http.Request) (User, bool) {
 	}
 	return u, true
 }
-func (a *App) publicPage(w http.ResponseWriter, r *http.Request) {
+func (a *App) publicMeetingType(w http.ResponseWriter, r *http.Request) (User, MeetingType, bool) {
+	u, ok := a.publicUser(w, r)
+	if !ok {
+		return u, MeetingType{}, false
+	}
+	t, e := scanMeetingType(a.db.QueryRowContext(r.Context(), "SELECT "+meetingTypeColumns+" FROM meeting_types WHERE user_id=? AND slug=? AND active=1", u.ID, r.PathValue("type")))
+	if errors.Is(e, sql.ErrNoRows) {
+		http.NotFound(w, r)
+		return u, t, false
+	}
+	if e != nil {
+		a.internal(w, r, e)
+		return u, t, false
+	}
+	return u, t, true
+}
+func (a *App) hostPage(w http.ResponseWriter, r *http.Request) {
 	u, ok := a.publicUser(w, r)
 	if !ok {
 		return
 	}
-	loc, e := time.LoadLocation(u.Timezone)
+	ts, e := a.meetingTypes(r.Context(), u.ID, true)
+	if e != nil {
+		a.internal(w, r, e)
+		return
+	}
+	if len(ts) == 1 {
+		http.Redirect(w, r, "/b/"+u.Slug+"/"+ts[0].Slug, http.StatusFound)
+		return
+	}
+	a.render(w, r, "host", Page{Title: "Meet with " + u.Name, User: u, MeetingTypes: ts, BookingURL: "/b/" + u.Slug}, 200)
+}
+func (a *App) publicPage(w http.ResponseWriter, r *http.Request) {
+	u, t, ok := a.publicMeetingType(w, r)
+	if !ok {
+		return
+	}
+	loc, e := time.LoadLocation(t.Timezone)
 	if e != nil {
 		a.internal(w, r, e)
 		return
@@ -449,13 +578,13 @@ func (a *App) publicPage(w http.ResponseWriter, r *http.Request) {
 		date = now.In(loc).Format("2006-01-02")
 	}
 	day, e := time.ParseInLocation("2006-01-02", date, loc)
-	minDate, maxDate := now.In(loc).Format("2006-01-02"), now.In(loc).AddDate(0, 0, u.Horizon).Format("2006-01-02")
+	minDate, maxDate := now.In(loc).Format("2006-01-02"), now.In(loc).AddDate(0, 0, t.Horizon).Format("2006-01-02")
 	if e != nil || date < minDate || date > maxDate {
 		a.fail(w, r, 400, "Choose a date within the booking window.")
 		return
 	}
-	p := Page{Title: "Meet with " + u.Name, User: u, Date: date, MinDate: minDate, MaxDate: maxDate, BookingURL: "/b/" + u.Slug}
-	p.Slots, e = a.availability(r.Context(), u, day, now)
+	p := Page{Title: t.Name + " with " + u.Name, User: u, MeetingType: t, Date: date, MinDate: minDate, MaxDate: maxDate, BookingURL: "/b/" + u.Slug + "/" + t.Slug}
+	p.Slots, e = a.availability(r.Context(), u, t, day, now)
 	if e != nil {
 		slog.Warn("availability unavailable", "host", u.ID, "error", e)
 		p.Error = "Availability could not be verified with Google. Please try again shortly."
@@ -474,7 +603,7 @@ func (a *App) publicPage(w http.ResponseWriter, r *http.Request) {
 				found = true
 				p.Start = start
 				p.SlotLabel = s.Label
-				p.Ticket = a.ticket(u.ID, start, u.Duration)
+				p.Ticket = a.ticket(u.ID, t, start)
 			}
 		}
 		if !found {
@@ -484,10 +613,10 @@ func (a *App) publicPage(w http.ResponseWriter, r *http.Request) {
 	a.render(w, r, "booking", p, 200)
 }
 
-// A signed ticket freezes host, slot, duration, expiry, and an idempotency key.
+// A signed ticket freezes host, meeting type, slot, duration, expiry, and an idempotency key.
 // The ticket MAC doubles as the unguessable manage token; retries return the same booking.
-func (a *App) ticket(uid, start int64, duration int) string {
-	payload := fmt.Sprintf("%d.%d.%d.%d.%s", uid, start, duration, time.Now().Add(30*time.Minute).Unix(), randomHex(16))
+func (a *App) ticket(uid int64, t MeetingType, start int64) string {
+	payload := fmt.Sprintf("%d.%d.%d.%d.%d.%s", uid, t.ID, start, t.Duration, time.Now().Add(30*time.Minute).Unix(), randomHex(16))
 	return payload + "." + a.ticketMAC(payload)
 }
 func (a *App) ticketMAC(payload string) string {
@@ -495,27 +624,28 @@ func (a *App) ticketMAC(payload string) string {
 	mac.Write([]byte(payload))
 	return hex.EncodeToString(mac.Sum(nil))
 }
-func (a *App) verifyTicket(s string, u User) (start int64, id, token string, err error) {
+func (a *App) verifyTicket(s string, u User, t MeetingType) (start int64, id, token string, err error) {
 	parts := strings.Split(s, ".")
-	if len(parts) != 6 {
+	if len(parts) != 7 {
 		return 0, "", "", errors.New("invalid ticket")
 	}
-	payload := strings.Join(parts[:5], ".")
+	payload := strings.Join(parts[:6], ".")
 	mac := a.ticketMAC(payload)
-	if !hmac.Equal([]byte(mac), []byte(parts[5])) {
+	if !hmac.Equal([]byte(mac), []byte(parts[6])) {
 		return 0, "", "", errors.New("invalid signature")
 	}
 	uid, e1 := strconv.ParseInt(parts[0], 10, 64)
-	start, e2 := strconv.ParseInt(parts[1], 10, 64)
-	duration, e3 := strconv.Atoi(parts[2])
-	expiry, e4 := strconv.ParseInt(parts[3], 10, 64)
-	if e1 != nil || e2 != nil || e3 != nil || e4 != nil || uid != u.ID || duration != u.Duration || expiry < time.Now().Unix() {
+	tid, e2 := strconv.ParseInt(parts[1], 10, 64)
+	start, e3 := strconv.ParseInt(parts[2], 10, 64)
+	duration, e4 := strconv.Atoi(parts[3])
+	expiry, e5 := strconv.ParseInt(parts[4], 10, 64)
+	if e1 != nil || e2 != nil || e3 != nil || e4 != nil || e5 != nil || uid != u.ID || tid != t.ID || duration != t.Duration || expiry < time.Now().Unix() {
 		return 0, "", "", errors.New("expired ticket")
 	}
-	return start, parts[4], mac, nil
+	return start, parts[5], mac, nil
 }
 func (a *App) book(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.publicUser(w, r)
+	u, t, ok := a.publicMeetingType(w, r)
 	if !ok {
 		return
 	}
@@ -523,7 +653,7 @@ func (a *App) book(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "Unable to book.")
 		return
 	}
-	start, id, token, e := a.verifyTicket(r.PostForm.Get("ticket"), u)
+	start, id, token, e := a.verifyTicket(r.PostForm.Get("ticket"), u, t)
 	if e != nil {
 		a.fail(w, r, 400, "This booking form expired. Return to the booking page and choose a time again.")
 		return
@@ -541,14 +671,14 @@ func (a *App) book(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	loc, e := time.LoadLocation(u.Timezone)
+	loc, e := time.LoadLocation(t.Timezone)
 	if e != nil {
 		a.internal(w, r, e)
 		return
 	}
-	t := time.Unix(start, 0).In(loc)
-	day := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc)
-	slots, e := a.availability(r.Context(), u, day, time.Now())
+	local := time.Unix(start, 0).In(loc)
+	day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
+	slots, e := a.availability(r.Context(), u, t, day, time.Now())
 	if e != nil {
 		a.fail(w, r, 503, "Could not verify availability with Google. Please try again.")
 		return
@@ -563,7 +693,7 @@ func (a *App) book(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 409, "That time is no longer available. Please choose another slot.")
 		return
 	}
-	b := Booking{ID: id, UserID: u.ID, CalendarID: u.WriteCalendar.Int64, GuestName: name, GuestEmail: email, Start: start, End: start + int64(u.Duration*60), BlockStart: start - int64(u.Buffer*60), BlockEnd: start + int64((u.Duration+u.Buffer)*60), Title: name + " / " + u.Name, Location: u.Location, Timezone: u.Timezone, ManageToken: token, Status: "pending", Created: time.Now().Unix()}
+	b := Booking{ID: id, UserID: u.ID, CalendarID: u.WriteCalendar.Int64, GuestName: name, GuestEmail: email, Start: start, End: start + int64(t.Duration*60), BlockStart: start - int64(t.Buffer*60), BlockEnd: start + int64((t.Duration+t.Buffer)*60), Title: t.Name + ": " + name + " / " + u.Name, Location: u.Location, Timezone: t.Timezone, ManageToken: token, Status: "pending", Created: time.Now().Unix()}
 	if e = a.reserve(r.Context(), b); e != nil {
 		if existing, err := a.getBooking(r.Context(), token); err == nil {
 			http.Redirect(w, r, "/manage/"+existing.ManageToken, 303)

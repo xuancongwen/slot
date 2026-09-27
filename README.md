@@ -9,9 +9,9 @@ A small Google Calendar booking app for a home lab. One Go process, one SQLite d
 - Multiple independent scheduling users, registered through the admin port.
 - Multiple Google accounts per user, with multiple calendars per account.
 - Combined free/busy checks across selected calendars; one destination calendar for bookings.
-- A public booking link for each user: `/b/your-name`. No public user directory.
-- One meeting type per user, with configurable duration and location/link.
-- Weekly availability, IANA timezone, full days off, buffers, minimum notice, and booking horizon.
+- A public booking link for each user: `/b/your-name`, listing their meeting types at `/b/your-name/type`. No public user directory.
+- Multiple meeting types per user, each with its own length, IANA timezone, weekly availability, buffers, minimum notice, and booking horizon. A per-type timezone lets you publish a schedule for a trip alongside your usual one.
+- Full days off and one location/link per user.
 - Pause/publish controls, upcoming and past booking list, cancellation, and password changes.
 - Google invitations and an optional `.ics` download.
 - Durable Google write retries, including after a restart. Uncertain bookings continue reserving the slot.
@@ -33,7 +33,7 @@ make run
 - Public: <http://localhost:8080>
 - Data: `./data/slot.db` and `./data/secret.key`
 
-Create your host account on the admin port. Configure Google below, restart, connect an account, save calendar selections, set your timezone/hours, then publish the page.
+Create your host account on the admin port. Configure Google below, restart, connect an account, save calendar selections, edit your meeting type's timezone and hours, then publish the page.
 
 ## Run with Docker Compose
 
@@ -105,7 +105,7 @@ Google Calendar does not offer an atomic “insert only if still free” operati
 
 ## Intentional first-pass limits
 
-- One event type, one daily working-hours interval, and full-day exceptions per host.
+- One daily working-hours interval per meeting type, and full-day exceptions per host.
 - Times on the public page are explicitly shown in the host's timezone, including the UTC offset. Calendar invitations display in the guest's own calendar timezone.
 - Reschedule by cancelling and booking again. No payments, round-robin teams, reminder service, or automatic Meet links; a fixed meeting URL can be entered as the location.
 - No account email verification, forgotten-password email flow, or site-wide super-admin. Protect registration through the private admin interface and optional code.
@@ -115,6 +115,8 @@ Google Calendar does not offer an atomic “insert only if still free” operati
 - Run **one app instance per database**. SQLite and the worker are designed for a small single-server deployment; do not run replicas against a shared network-mounted database.
 
 ## Data and backups
+
+Development builds do not migrate the database. If Slot refuses to start with a schema version error after an upgrade, move the data directory aside and start fresh.
 
 The data directory contains the SQLite database, WAL/SHM files while running, and `secret.key`. The key encrypts Google tokens and signs booking forms. **Back up the key with the database** and keep it private. Losing it makes saved Google credentials unusable. The app refuses to create a replacement key next to an existing database.
 

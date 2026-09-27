@@ -10,25 +10,56 @@ import (
 )
 
 type User struct {
-	ID                                                  int64
-	Email, Password, Name, Slug, Timezone, Days         string
-	StartMin, EndMin, Duration, Buffer, Notice, Horizon int
-	Location                                            string
-	Enabled                                             bool
-	WriteCalendar                                       sql.NullInt64
+	ID                                    int64
+	Email, Password, Name, Slug, Location string
+	Enabled                               bool
+	WriteCalendar                         sql.NullInt64
 }
 
-const userColumns = "id,email,password,name,slug,timezone,days,start_min,end_min,duration,buffer,notice,horizon,location,enabled,write_calendar"
+const userColumns = "id,email,password,name,slug,location,enabled,write_calendar"
 
 type scanner interface{ Scan(...any) error }
 
 func scanUser(s scanner) (User, error) {
 	var u User
-	err := s.Scan(&u.ID, &u.Email, &u.Password, &u.Name, &u.Slug, &u.Timezone, &u.Days, &u.StartMin, &u.EndMin, &u.Duration, &u.Buffer, &u.Notice, &u.Horizon, &u.Location, &u.Enabled, &u.WriteCalendar)
+	err := s.Scan(&u.ID, &u.Email, &u.Password, &u.Name, &u.Slug, &u.Location, &u.Enabled, &u.WriteCalendar)
 	return u, err
 }
 func (a *App) userByID(ctx context.Context, id int64) (User, error) {
 	return scanUser(a.db.QueryRowContext(ctx, "SELECT "+userColumns+" FROM users WHERE id=?", id))
+}
+
+// A MeetingType carries its own timezone and hours, so a host can publish, say,
+// a Singapore schedule for a trip alongside their usual Seattle one.
+type MeetingType struct {
+	ID, UserID                                          int64
+	Slug, Name, Timezone, Days                          string
+	StartMin, EndMin, Duration, Buffer, Notice, Horizon int
+	Active                                              bool
+}
+
+const meetingTypeColumns = "id,user_id,slug,name,timezone,days,start_min,end_min,duration,buffer,notice,horizon,active"
+
+func scanMeetingType(s scanner) (MeetingType, error) {
+	var t MeetingType
+	err := s.Scan(&t.ID, &t.UserID, &t.Slug, &t.Name, &t.Timezone, &t.Days, &t.StartMin, &t.EndMin, &t.Duration, &t.Buffer, &t.Notice, &t.Horizon, &t.Active)
+	return t, err
+}
+func (a *App) meetingTypes(ctx context.Context, uid int64, activeOnly bool) ([]MeetingType, error) {
+	rows, e := a.db.QueryContext(ctx, "SELECT "+meetingTypeColumns+" FROM meeting_types WHERE user_id=? AND (active=1 OR ?=0) ORDER BY duration,name", uid, activeOnly)
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	var ts []MeetingType
+	for rows.Next() {
+		t, e := scanMeetingType(rows)
+		if e != nil {
+			return nil, e
+		}
+		ts = append(ts, t)
+	}
+	return ts, rows.Err()
 }
 
 type Calendar struct {
@@ -110,34 +141,34 @@ type Slot struct {
 
 func overlaps(a, b Span) bool { return a.Start.Before(b.End) && a.End.After(b.Start) }
 
-// Slots are evaluated in the host's IANA timezone, then represented as UTC instants.
+// Slots are evaluated in the meeting type's IANA timezone, then represented as UTC instants.
 // Iterating instants rather than constructing wall times handles skipped/repeated DST hours.
-func generateSlots(u User, day time.Time, now time.Time, busy []Span) []Slot {
-	loc, e := time.LoadLocation(u.Timezone)
+func generateSlots(mt MeetingType, day time.Time, now time.Time, busy []Span) []Slot {
+	loc, e := time.LoadLocation(mt.Timezone)
 	if e != nil {
 		return nil
 	}
 	day = day.In(loc)
-	if !strings.Contains(u.Days, fmt.Sprint(int(day.Weekday()))) {
+	if !strings.Contains(mt.Days, fmt.Sprint(int(day.Weekday()))) {
 		return nil
 	}
 	start := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, loc)
 	finish := start.AddDate(0, 0, 1)
-	limit := now.In(loc).AddDate(0, 0, u.Horizon)
-	min := now.Add(time.Duration(u.Notice) * time.Minute)
+	limit := now.In(loc).AddDate(0, 0, mt.Horizon)
+	min := now.Add(time.Duration(mt.Notice) * time.Minute)
 	var out []Slot
 	for t := start; t.Before(finish); t = t.Add(time.Minute) {
 		local := t.In(loc)
 		minute := local.Hour()*60 + local.Minute()
-		if minute < u.StartMin || (minute-u.StartMin)%u.Duration != 0 || t.Before(min) || t.After(limit) {
+		if minute < mt.StartMin || (minute-mt.StartMin)%mt.Duration != 0 || t.Before(min) || t.After(limit) {
 			continue
 		}
-		end := t.Add(time.Duration(u.Duration) * time.Minute)
+		end := t.Add(time.Duration(mt.Duration) * time.Minute)
 		endLocal := end.In(loc)
-		if end.After(finish) || endLocal.Year() != local.Year() || endLocal.YearDay() != local.YearDay() || endLocal.Hour()*60+endLocal.Minute() > u.EndMin || minute >= u.EndMin {
+		if end.After(finish) || endLocal.Year() != local.Year() || endLocal.YearDay() != local.YearDay() || endLocal.Hour()*60+endLocal.Minute() > mt.EndMin || minute >= mt.EndMin {
 			continue
 		}
-		block := Span{t.Add(-time.Duration(u.Buffer) * time.Minute), end.Add(time.Duration(u.Buffer) * time.Minute)}
+		block := Span{t.Add(-time.Duration(mt.Buffer) * time.Minute), end.Add(time.Duration(mt.Buffer) * time.Minute)}
 		available := true
 		for _, b := range busy {
 			if overlaps(block, b) {
@@ -152,8 +183,8 @@ func generateSlots(u User, day time.Time, now time.Time, busy []Span) []Slot {
 	return out
 }
 
-func (a *App) availability(ctx context.Context, u User, day time.Time, now time.Time) ([]Slot, error) {
-	if !u.Enabled || !u.WriteCalendar.Valid {
+func (a *App) availability(ctx context.Context, u User, t MeetingType, day time.Time, now time.Time) ([]Slot, error) {
+	if !u.Enabled || !t.Active || !u.WriteCalendar.Valid {
 		return nil, nil
 	}
 	var blocked int
@@ -163,8 +194,8 @@ func (a *App) availability(ctx context.Context, u User, day time.Time, now time.
 	if blocked > 0 {
 		return nil, nil
 	}
-	from := day.Add(-time.Duration(u.Buffer) * time.Minute)
-	to := day.AddDate(0, 0, 1).Add(time.Duration(u.Buffer) * time.Minute)
+	from := day.Add(-time.Duration(t.Buffer) * time.Minute)
+	to := day.AddDate(0, 0, 1).Add(time.Duration(t.Buffer) * time.Minute)
 	cs, e := a.calendars(ctx, u.ID)
 	if e != nil {
 		return nil, e
@@ -192,14 +223,14 @@ func (a *App) availability(ctx context.Context, u User, day time.Time, now time.
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var s, t int64
-		if e = rows.Scan(&s, &t); e != nil {
+		var start, end int64
+		if e = rows.Scan(&start, &end); e != nil {
 			return nil, e
 		}
-		busy = append(busy, Span{time.Unix(s, 0), time.Unix(t, 0)})
+		busy = append(busy, Span{time.Unix(start, 0), time.Unix(end, 0)})
 	}
 	if e = rows.Err(); e != nil {
 		return nil, e
 	}
-	return generateSlots(u, day, now, busy), nil
+	return generateSlots(t, day, now, busy), nil
 }

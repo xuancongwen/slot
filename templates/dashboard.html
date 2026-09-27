@@ -17,61 +17,51 @@
   </section>
 
   <nav class="section-nav" aria-label="Workspace sections">
-    <a href="#availability">Availability</a>
+    <a href="#meeting-types">Meeting types</a>
     <a href="#calendars">Calendars</a>
     <a href="#bookings">Bookings</a>
     <a href="#account">Account</a>
   </nav>
 
   <div class="dashboard-grid">
-    <section class="card" id="availability">
-      <h2>Availability</h2>
-      <form method="post" action="/settings">
-        <input type="hidden" name="csrf" value="{{.CSRF}}">
-        <div class="form-grid">
+    <div>
+      <section class="card" id="meeting-types">
+        <div class="card-heading">
+          <h2>Meeting types</h2>
+          <a class="button secondary small" href="/types/new">+ New type</a>
+        </div>
+        {{range .MeetingTypes}}
+        <div class="type-row">
+          <div>
+            <strong>{{.Name}}</strong>
+            <small>{{.Duration}} min · {{.Timezone}} · {{clock .StartMin}}–{{clock .EndMin}}</small>
+            <a href="{{$.BookingURL}}/{{.Slug}}" target="_blank" rel="noopener">{{$.BookingURL}}/{{.Slug}} ↗</a>
+          </div>
+          <span class="pill">{{if .Active}}On{{else}}Off{{end}}</span>
+          <a class="text-button" href="/types/{{.ID}}">Edit</a>
+        </div>
+        {{else}}
+        <div class="empty compact"><p>No meeting types yet. Guests can’t book until you add one.</p></div>
+        {{end}}
+      </section>
+
+      <section class="card" id="profile">
+        <h2>Profile</h2>
+        <form method="post" action="/settings">
+          <input type="hidden" name="csrf" value="{{.CSRF}}">
           <label>Display name
             <input name="name" value="{{.User.Name}}" maxlength="100" required>
           </label>
-          <label>Timezone
-            <input name="timezone" value="{{.User.Timezone}}" placeholder="America/Los_Angeles" required>
-            <span class="hint">An IANA timezone, e.g. America/Los_Angeles.</span>
+          <label>Where to meet
+            <input name="location" value="{{.User.Location}}" maxlength="500" placeholder="A meeting link, phone number, or address">
+            <span class="hint">Shown on the booking page and included in the invitation.</span>
           </label>
-        </div>
-        <fieldset>
-          <legend>Available days</legend>
-          <div class="day-options">
-            {{range .Days}}<label><input type="checkbox" name="days" value="{{.Number}}" {{if hasDay $.User.Days .Number}}checked{{end}}><span>{{.Name}}</span></label>{{end}}
-          </div>
-        </fieldset>
-        <div class="form-grid">
-          <label>From
-            <input type="time" name="start" value="{{clock .User.StartMin}}" required>
-          </label>
-          <label>Until
-            <input type="time" name="end" value="{{clock .User.EndMin}}" required>
-          </label>
-          <label>Meeting length <span class="optional">minutes</span>
-            <input type="number" name="duration" min="5" max="240" value="{{.User.Duration}}" required>
-          </label>
-          <label>Buffer on each side <span class="optional">minutes</span>
-            <input type="number" name="buffer" min="0" max="120" value="{{.User.Buffer}}" required>
-          </label>
-          <label>Minimum notice <span class="optional">minutes</span>
-            <input type="number" name="notice" min="0" max="43200" value="{{.User.Notice}}" required>
-          </label>
-          <label>Book ahead <span class="optional">days</span>
-            <input type="number" name="horizon" min="1" max="90" value="{{.User.Horizon}}" required>
-          </label>
-        </div>
-        <label>Where to meet
-          <input name="location" value="{{.User.Location}}" maxlength="500" placeholder="A meeting link, phone number, or address">
-          <span class="hint">Shown on the booking page and included in the invitation.</span>
-        </label>
-        <label class="check-row"><input type="checkbox" name="enabled" {{if .User.Enabled}}checked{{end}}>Publish my booking page</label>
-        <p class="hint">Connect Google and choose a destination calendar first. Changes apply to new bookings.</p>
-        <button>Save availability</button>
-      </form>
-    </section>
+          <label class="check-row"><input type="checkbox" name="enabled" {{if .User.Enabled}}checked{{end}}>Publish my booking page</label>
+          <p class="hint">Connect Google and choose a destination calendar first. Changes apply to new bookings.</p>
+          <button>Save profile</button>
+        </form>
+      </section>
+    </div>
 
     <aside>
       <section class="card" id="calendars">
@@ -123,7 +113,7 @@
 
       <section class="card">
         <h2>Days off</h2>
-        <p class="hint">Block an entire date in your timezone. Existing bookings stay in place.</p>
+        <p class="hint">Block an entire date. Each meeting type reads the date in its own timezone. Existing bookings stay in place.</p>
         <form method="post" action="/blocks" class="inline-form">
           <input type="hidden" name="csrf" value="{{.CSRF}}">
           <label class="grow">Date<input type="date" name="day" required></label>
