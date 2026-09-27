@@ -1,10 +1,11 @@
 {{define "booking"}}{{template "head" .}}
 <main class="public-layout">
   <section class="host-intro">
-    <h1>Meet with<br>{{.User.Name}}</h1>
+    <h1>{{.MeetingType.Name}}</h1>
+    <p class="muted">with {{.User.Name}}</p>
     <div class="meeting-detail">
       <span>◷</span>
-      <div><strong>{{.User.Duration}} minutes</strong><small>Duration</small></div>
+      <div><strong>{{.MeetingType.Duration}} minutes</strong><small>Duration</small></div>
     </div>
     {{if .User.Location}}
     <div class="meeting-detail">
@@ -14,7 +15,7 @@
     {{end}}
     <div class="meeting-detail">
       <span>◎</span>
-      <div><strong>{{.User.Timezone}}</strong><small>All times shown in the host’s timezone.</small></div>
+      <div><strong>{{.MeetingType.Timezone}}</strong><small>All times shown in the host’s timezone.</small></div>
     </div>
   </section>
 
@@ -25,7 +26,7 @@
     <h2>Your details</h2>
     <div class="selected-time">
       <strong>{{.Date}}</strong>
-      <span>{{.SlotLabel}} · {{.User.Duration}} min</span>
+      <span>{{.SlotLabel}} · {{.MeetingType.Duration}} min</span>
     </div>
     <form method="post" action="{{.BookingURL}}">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
@@ -45,7 +46,7 @@
     {{else}}
     <h2>Choose a day & time</h2>
     <form method="get" class="date-form">
-      <label>Date in {{.User.Timezone}}
+      <label>Date in {{.MeetingType.Timezone}}
         <input type="date" name="date" value="{{.Date}}" min="{{.MinDate}}" max="{{.MaxDate}}" required>
       </label>
       <button class="secondary">Show times</button>

@@ -64,11 +64,14 @@ func testApp(t *testing.T) (*App, *fakeCalendar) {
 }
 func seedHost(t *testing.T, a *App, slug string) User {
 	t.Helper()
-	r, e := a.db.Exec(`INSERT INTO users(email,password,name,slug,days,notice,enabled,created) VALUES(?,?,'Alex',?,'0123456',0,1,?)`, slug+"@example.com", "unused", slug, time.Now().Unix())
+	r, e := a.db.Exec(`INSERT INTO users(email,password,name,slug,enabled,created) VALUES(?,?,'Alex',?,1,?)`, slug+"@example.com", "unused", slug, time.Now().Unix())
 	if e != nil {
 		t.Fatal(e)
 	}
 	uid, _ := r.LastInsertId()
+	if _, e = a.db.Exec(`INSERT INTO meeting_types(user_id,slug,name,days,notice) VALUES(?,'chat','Chat','0123456',0)`, uid); e != nil {
+		t.Fatal(e)
+	}
 	r, e = a.db.Exec("INSERT INTO accounts(user_id,identity,token) VALUES(?,?,?)", uid, slug+"@example.com", a.seal([]byte(`{"access_token":"test"}`)))
 	if e != nil {
 		t.Fatal(e)
@@ -87,6 +90,14 @@ func seedHost(t *testing.T, a *App, slug string) User {
 		t.Fatal(e)
 	}
 	return u
+}
+func chatType(t *testing.T, a *App, u User) MeetingType {
+	t.Helper()
+	mt, e := scanMeetingType(a.db.QueryRow("SELECT "+meetingTypeColumns+" FROM meeting_types WHERE user_id=? AND slug='chat'", u.ID))
+	if e != nil {
+		t.Fatal(e)
+	}
+	return mt
 }
 func bookingFor(u User, start time.Time) Booking {
 	return Booking{ID: randomHex(16), UserID: u.ID, CalendarID: u.WriteCalendar.Int64, GuestName: "Guest", GuestEmail: "guest@example.com", Start: start.Unix(), End: start.Add(30 * time.Minute).Unix(), BlockStart: start.Unix(), BlockEnd: start.Add(30 * time.Minute).Unix(), Title: "Guest / Alex", Timezone: "UTC", ManageToken: randomHex(32), Created: time.Now().Unix()}
@@ -122,7 +133,7 @@ func sessionFor(t *testing.T, a *App, u User) *http.Cookie {
 }
 
 func TestAvailabilityRules(t *testing.T) {
-	u := User{Timezone: "UTC", Days: "12345", StartMin: 540, EndMin: 660, Duration: 30, Buffer: 10, Notice: 60, Horizon: 30}
+	u := MeetingType{Timezone: "UTC", Days: "12345", StartMin: 540, EndMin: 660, Duration: 30, Buffer: 10, Notice: 60, Horizon: 30}
 	day := time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)
 	now := day.Add(8 * time.Hour)
 	busy := []Span{{day.Add(9*time.Hour + 30*time.Minute), day.Add(10 * time.Hour)}}
@@ -139,7 +150,7 @@ func TestAvailabilityRules(t *testing.T) {
 }
 func TestDST(t *testing.T) {
 	loc, _ := time.LoadLocation("America/New_York")
-	u := User{Timezone: loc.String(), Days: "0", StartMin: 120, EndMin: 180, Duration: 30, Horizon: 30}
+	u := MeetingType{Timezone: loc.String(), Days: "0", StartMin: 120, EndMin: 180, Duration: 30, Horizon: 30}
 	spring := time.Date(2026, 3, 8, 0, 0, 0, 0, loc)
 	if s := generateSlots(u, spring, spring.AddDate(0, 0, -1), nil); len(s) != 0 {
 		t.Fatalf("spring gap exposed nonexistent times: %+v", s)
@@ -246,21 +257,22 @@ func TestDurableSyncAndCancellation(t *testing.T) {
 func TestPublicBookingFlow(t *testing.T) {
 	a, f := testApp(t)
 	u := seedHost(t, a, "alex")
+	mt := chatType(t, a, u)
 	h := a.publicHandler()
 	day := tomorrow()
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("GET", "/b/alex?date="+day.Format("2006-01-02"), nil))
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/b/alex/chat?date="+day.Format("2006-01-02"), nil))
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "Choose a day") {
 		t.Fatalf("page: %d %s", w.Code, w.Body)
 	}
-	ticket := a.ticket(u.ID, day.Unix(), u.Duration)
+	ticket := a.ticket(u.ID, mt, day.Unix())
 	form := url.Values{"ticket": {ticket}, "name": {"Guest <script>alert(1)</script>"}, "email": {"guest@example.com"}}
-	w = formRequest(h, "/b/alex", form, false)
+	w = formRequest(h, "/b/alex/chat", form, false)
 	if w.Code != 303 {
 		t.Fatalf("book: %d %s", w.Code, w.Body)
 	}
 	manage := w.Header().Get("Location")
-	w2 := formRequest(h, "/b/alex", form, false)
+	w2 := formRequest(h, "/b/alex/chat", form, false)
 	if w2.Code != 303 || w2.Header().Get("Location") != manage {
 		t.Fatal("duplicate submit did not return same booking")
 	}
@@ -295,10 +307,11 @@ func TestPublicBookingFlow(t *testing.T) {
 func TestFailClosedAndDaysOff(t *testing.T) {
 	a, f := testApp(t)
 	u := seedHost(t, a, "alex")
+	mt := chatType(t, a, u)
 	day := tomorrow()
 	day = time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, time.UTC)
 	f.busyErr = errors.New("Google unavailable")
-	if _, e := a.availability(context.Background(), u, day, time.Now()); e == nil {
+	if _, e := a.availability(context.Background(), u, mt, day, time.Now()); e == nil {
 		t.Fatal("availability allowed on Google error")
 	}
 	f.busyErr = nil
@@ -306,7 +319,7 @@ func TestFailClosedAndDaysOff(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	s, e := a.availability(context.Background(), u, day, time.Now())
+	s, e := a.availability(context.Background(), u, mt, day, time.Now())
 	if e != nil || len(s) > 0 {
 		t.Fatal("day off ignored")
 	}
@@ -318,7 +331,7 @@ func TestPortsCSRFAndUserIsolation(t *testing.T) {
 	cookie := sessionFor(t, a, u)
 	b := bookingFor(v, tomorrow())
 	a.reserve(context.Background(), b)
-	for _, path := range []string{"/login", "/register", "/oauth/callback", "/settings"} {
+	for _, path := range []string{"/login", "/register", "/oauth/callback", "/settings", "/types/new"} {
 		w := httptest.NewRecorder()
 		a.publicHandler().ServeHTTP(w, httptest.NewRequest("GET", path, nil))
 		if w.Code != 404 {
@@ -373,10 +386,15 @@ func TestReferrerPolicyKeepsSameOriginPostsValid(t *testing.T) {
 func TestRegisterLoginPassword(t *testing.T) {
 	a, _ := testApp(t)
 	h := a.adminHandler()
-	form := url.Values{"name": {"New Host"}, "slug": {"new-host"}, "email": {"new@example.com"}, "password": {"a long test password"}}
+	form := url.Values{"name": {"New Host"}, "slug": {"new-host"}, "email": {"new@example.com"}, "password": {"a long test password"}, "timezone": {"Asia/Singapore"}}
 	w := formRequest(h, "/register", form, true)
 	if w.Code != 303 {
 		t.Fatalf("registration: %d %s", w.Code, w.Body)
+	}
+	var starterZone string
+	a.db.QueryRow("SELECT m.timezone FROM meeting_types m JOIN users u ON u.id=m.user_id WHERE u.email='new@example.com'").Scan(&starterZone)
+	if starterZone != "Asia/Singapore" {
+		t.Fatalf("starter meeting type timezone = %q", starterZone)
 	}
 	var c *http.Cookie
 	for _, cookie := range w.Result().Cookies() {
@@ -408,15 +426,21 @@ func TestRegisterLoginPassword(t *testing.T) {
 func TestTicketIntegrity(t *testing.T) {
 	a, _ := testApp(t)
 	u := seedHost(t, a, "alex")
-	ticket := a.ticket(u.ID, tomorrow().Unix(), 30)
-	if _, _, _, e := a.verifyTicket(ticket, u); e != nil {
+	mt := chatType(t, a, u)
+	ticket := a.ticket(u.ID, mt, tomorrow().Unix())
+	if _, _, _, e := a.verifyTicket(ticket, u, mt); e != nil {
 		t.Fatal(e)
 	}
-	if _, _, _, e := a.verifyTicket(ticket+"x", u); e == nil {
+	if _, _, _, e := a.verifyTicket(ticket+"x", u, mt); e == nil {
 		t.Fatal("tampered ticket accepted")
 	}
-	u.Duration = 60
-	if _, _, _, e := a.verifyTicket(ticket, u); e == nil {
+	other := mt
+	other.ID++
+	if _, _, _, e := a.verifyTicket(ticket, u, other); e == nil {
+		t.Fatal("ticket accepted for another meeting type")
+	}
+	mt.Duration = 60
+	if _, _, _, e := a.verifyTicket(ticket, u, mt); e == nil {
 		t.Fatal("old duration accepted")
 	}
 }
@@ -539,6 +563,7 @@ func TestRestartKeepsPendingBookings(t *testing.T) {
 	if e := a.reserve(context.Background(), b); e != nil {
 		t.Fatal(e)
 	}
+	mt := chatType(t, a, u)
 	a.db.Close()
 	second, e := newApp(a.cfg)
 	if e != nil {
@@ -552,8 +577,8 @@ func TestRestartKeepsPendingBookings(t *testing.T) {
 	if e != nil || got.Status != "confirmed" {
 		t.Fatal("restart lost booking", e)
 	}
-	ticket := a.ticket(u.ID, tomorrow().Unix(), 30)
-	if _, _, _, e = second.verifyTicket(ticket, u); e != nil {
+	ticket := a.ticket(u.ID, mt, tomorrow().Unix())
+	if _, _, _, e = second.verifyTicket(ticket, u, mt); e != nil {
 		t.Fatal("ticket key changed on restart")
 	}
 }
@@ -586,8 +611,90 @@ func TestTwoCharacterBookingSlug(t *testing.T) {
 		}
 	}
 }
+func TestMeetingTypeEditingAndIsolation(t *testing.T) {
+	a, _ := testApp(t)
+	u := seedHost(t, a, "one")
+	theirs := chatType(t, a, seedHost(t, a, "two"))
+	cookie := sessionFor(t, a, u)
+	h := a.adminHandler()
+	form := func(slug, tz string) url.Values {
+		return url.Values{"name": {"Deep dive"}, "slug": {slug}, "timezone": {tz}, "duration": {"60"}, "days": {"1", "2"}, "start": {"09:00"}, "end": {"17:00"}, "buffer": {"0"}, "notice": {"0"}, "horizon": {"30"}, "active": {"on"}}
+	}
+	for _, tc := range []struct {
+		name, path string
+		form       url.Values
+		want       int
+	}{
+		{"create", "/types", form("deep", "Asia/Singapore"), 303},
+		{"unknown timezone", "/types", form("mars", "Mars/Olympus_Mons"), 400},
+		{"server-local timezone", "/types", form("local", "Local"), 400},
+		{"duplicate URL", "/types", form("chat", "UTC"), 409},
+		{"another host's type", fmt.Sprintf("/types/%d", theirs.ID), form("stolen", "UTC"), 404},
+		{"delete another host's type", fmt.Sprintf("/types/%d/delete", theirs.ID), url.Values{}, 303},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if w := formRequest(h, tc.path, tc.form, true, cookie); w.Code != tc.want {
+				t.Fatalf("status %d, want %d: %s", w.Code, tc.want, w.Body)
+			}
+		})
+	}
+	var zone string
+	var days string
+	a.db.QueryRow("SELECT timezone,days FROM meeting_types WHERE user_id=? AND slug='deep'", u.ID).Scan(&zone, &days)
+	if zone != "Asia/Singapore" || days != "12" {
+		t.Fatalf("saved %q %q", zone, days)
+	}
+	var n int
+	a.db.QueryRow("SELECT count(*) FROM meeting_types WHERE id=? AND slug='chat'", theirs.ID).Scan(&n)
+	if n != 1 {
+		t.Fatal("another host's meeting type was changed or deleted")
+	}
+}
+func TestHostPageListsActiveTypes(t *testing.T) {
+	a, _ := testApp(t)
+	u := seedHost(t, a, "alex")
+	h := a.publicHandler()
+	get := func(path string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		return w
+	}
+	if w := get("/b/alex"); w.Code != 302 || w.Header().Get("Location") != "/b/alex/chat" {
+		t.Fatalf("single type should redirect: %d %s", w.Code, w.Header().Get("Location"))
+	}
+	a.db.Exec("INSERT INTO meeting_types(user_id,slug,name) VALUES(?,'deep','Deep dive')", u.ID)
+	a.db.Exec("INSERT INTO meeting_types(user_id,slug,name,active) VALUES(?,'hidden','Secret',0)", u.ID)
+	w := get("/b/alex")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Deep dive") || !strings.Contains(w.Body.String(), "Chat") || strings.Contains(w.Body.String(), "Secret") {
+		t.Fatalf("type list: %d %s", w.Code, w.Body)
+	}
+	if w := get("/b/alex/hidden"); w.Code != 404 {
+		t.Fatalf("inactive type reachable: %d", w.Code)
+	}
+}
+func TestTimezoneListLoads(t *testing.T) {
+	a, _ := testApp(t)
+	if len(a.timezones) < 300 || a.timezones[0] != "UTC" {
+		t.Fatalf("timezone list: %d entries", len(a.timezones))
+	}
+	for _, tz := range a.timezones {
+		if !validTimezone(tz) {
+			t.Errorf("listed timezone does not load: %s", tz)
+		}
+	}
+}
+func TestOldSchemaRefused(t *testing.T) {
+	a, _ := testApp(t)
+	if _, e := a.db.Exec("PRAGMA user_version=1"); e != nil {
+		t.Fatal(e)
+	}
+	a.db.Close()
+	if _, e := newApp(a.cfg); e == nil || !strings.Contains(e.Error(), "schema version") {
+		t.Fatalf("old schema accepted: %v", e)
+	}
+}
 func BenchmarkSlotGeneration(b *testing.B) {
-	u := User{Timezone: "America/Los_Angeles", Days: "0123456", StartMin: 540, EndMin: 1020, Duration: 30, Horizon: 30}
+	u := MeetingType{Timezone: "America/Los_Angeles", Days: "0123456", StartMin: 540, EndMin: 1020, Duration: 30, Horizon: 30}
 	loc, _ := time.LoadLocation(u.Timezone)
 	day := time.Date(2026, 10, 5, 0, 0, 0, 0, loc)
 	b.ReportAllocs()

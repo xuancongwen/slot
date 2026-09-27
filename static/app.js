@@ -8,3 +8,6 @@ if (document.querySelector('[data-pending]')) {
   window.setTimeout(() => { if (!document.hidden) window.location.reload(); }, 5000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) window.location.reload(); });
 }
+document.querySelectorAll('input[data-detect-timezone]').forEach(input => {
+  if (!input.value) input.value = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+});

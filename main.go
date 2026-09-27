@@ -30,8 +30,29 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-//go:embed templates/*.html static/* schema.sql
+// timezones.txt lists UTC plus the canonical IANA zones ("Z" entries in tzdata.zi,
+// excluding Etc/*), so the picker offers one name per region rather than every alias.
+//
+//go:embed templates/*.html static/* schema.sql timezones.txt
 var assets embed.FS
+
+// Development builds do not migrate: bump this whenever schema.sql changes shape,
+// and an older database fails fast instead of running against missing columns.
+const schemaVersion = 2
+
+func checkSchemaVersion(db *sql.DB) error {
+	var version, tables int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		return err
+	}
+	if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='users'").Scan(&tables); err != nil {
+		return err
+	}
+	if tables > 0 && version != schemaVersion {
+		return fmt.Errorf("database schema version %d does not match this build's %d; development builds do not migrate, so move the data directory aside and start fresh", version, schemaVersion)
+	}
+	return nil
+}
 
 type Config struct {
 	DataDir, PublicAddr, AdminAddr, PublicURL, AdminURL  string
@@ -45,6 +66,7 @@ type App struct {
 	aead       cipher.AEAD
 	signingKey []byte
 	templates  *template.Template
+	timezones  []string
 	google     CalendarProvider
 	oauth      *oauth2.Config
 	http       *http.Client
@@ -123,8 +145,12 @@ func newApp(c Config) (*App, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1) // One short-lived SQL operation at a time; never hold a connection across Google calls.
+	if err = checkSchemaVersion(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	schema, _ := assets.ReadFile("schema.sql")
-	if _, err = db.Exec(string(schema)); err != nil {
+	if _, err = db.Exec(string(schema) + fmt.Sprintf("PRAGMA user_version=%d;", schemaVersion)); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -138,12 +164,19 @@ func newApp(c Config) (*App, error) {
 			loc = time.UTC
 		}
 		return time.Unix(t, 0).In(loc).Format("Mon, Jan 2 · 15:04 MST")
+	}, "utcOffset": func(tz string) string {
+		loc, e := time.LoadLocation(tz)
+		if e != nil {
+			return ""
+		}
+		return time.Now().In(loc).Format("UTC-07:00")
 	}}).ParseFS(assets, "templates/*.html")
 	if err != nil {
 		db.Close()
 		return nil, err
 	}
-	a := &App{db: db, cfg: c, aead: aead, templates: t, http: &http.Client{Timeout: 15 * time.Second}, limit: newLimiter(), authSlots: make(chan struct{}, 4)}
+	zones, _ := assets.ReadFile("timezones.txt")
+	a := &App{db: db, cfg: c, aead: aead, templates: t, timezones: strings.Fields(string(zones)), http: &http.Client{Timeout: 15 * time.Second}, limit: newLimiter(), authSlots: make(chan struct{}, 4)}
 	mac := hmac.New(sha256.New, key)
 	mac.Write([]byte("slot-ticket-signing-key-v1"))
 	a.signingKey = mac.Sum(nil)

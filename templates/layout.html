@@ -22,6 +22,8 @@
 </html>
 {{end}}
 
+{{define "timezones"}}<datalist id="timezones">{{range .Timezones}}<option value="{{.}}">{{end}}</datalist>{{end}}
+
 {{define "messages"}}
   {{if .Error}}<div class="alert error" role="alert">{{.Error}}</div>{{end}}
   {{if .Notice}}<div class="alert" role="status">{{.Notice}}</div>{{end}}
