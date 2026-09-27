@@ -7,6 +7,12 @@
   --green: #244c3d;
   --white: #fffef9;
   --live: #15803d;
+  /* Fills for secondary controls, so no button sits bare on the card. */
+  --soft: #e8eee0;
+  --soft-hover: #dae4cf;
+  --soft-line: #c3cfba;
+  --danger-soft: #fbeae6;
+  --danger-soft-hover: #f4d6ce;
   --red: #b42318;
 }
 
@@ -64,9 +70,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 }
 
 .secondary {
-  background: transparent;
+  background: var(--soft);
   color: var(--ink);
-  border-color: #b9c5b9;
+  border-color: var(--soft-line);
+}
+
+.secondary:hover {
+  background: var(--soft-hover);
+  filter: none;
 }
 
 .small {
@@ -301,7 +312,8 @@ legend {
 
 .day-options span {
   display: block;
-  border: 1px solid var(--line);
+  background: var(--soft);
+  border: 1px solid var(--soft-line);
   padding: 10px 11px;
   border-radius: 5px;
   font-size: 11px;
@@ -391,10 +403,16 @@ legend {
 }
 
 .type-row > .reorder {
-  flex: 0 0 18px;
+  flex: 0 0 28px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
+}
+
+.reorder .text-button {
+  width: 28px;
+  min-height: 22px;
+  padding: 0;
 }
 
 .type-list {
@@ -414,19 +432,40 @@ legend {
 }
 
 .text-button {
-  padding: 5px 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 10px;
   min-height: 28px;
   border: 0;
-  background: transparent;
+  border-radius: 6px;
+  background: var(--soft);
   color: var(--green);
   font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.text-button:hover {
+  background: var(--soft-hover);
+  filter: none;
 }
 
 .danger, .sync-error {
   color: #a14739;
 }
 
+.text-button.danger {
+  background: var(--danger-soft);
+}
+
+.text-button.danger:hover {
+  background: var(--danger-soft-hover);
+}
+
 .danger-button {
+  background: var(--danger-soft);
   color: var(--red);
   border-color: var(--red);
 }
@@ -633,7 +672,8 @@ td .sync-error {
 .slot {
   display: flex;
   justify-content: space-between;
-  border: 1px solid #c3cfc0;
+  background: var(--soft);
+  border: 1px solid var(--soft-line);
   border-radius: 6px;
   padding: 13px 16px;
   text-decoration: none;
@@ -683,8 +723,12 @@ td .sync-error {
   text-decoration: none;
 }
 
+.month-nav a {
+  background: var(--soft);
+}
+
 .month-nav a:hover {
-  background: #edf0e5;
+  background: var(--soft-hover);
 }
 
 .month-nav span {
