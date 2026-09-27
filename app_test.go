@@ -348,6 +348,28 @@ func TestPortsCSRFAndUserIsolation(t *testing.T) {
 		t.Fatalf("dashboard isolation: %d", w.Code)
 	}
 }
+
+// Browsers send "Origin: null" on form POSTs from a no-referrer page, which the
+// origin check rejects, so every form would fail in a real browser.
+func TestReferrerPolicyKeepsSameOriginPostsValid(t *testing.T) {
+	a, _ := testApp(t)
+	for _, tc := range []struct {
+		name string
+		h    http.Handler
+		path string
+	}{
+		{"public", a.publicHandler(), "/"},
+		{"admin", a.adminHandler(), "/login"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			tc.h.ServeHTTP(w, httptest.NewRequest("GET", tc.path, nil))
+			if got := w.Header().Get("Referrer-Policy"); got != "same-origin" {
+				t.Fatalf("Referrer-Policy = %q, want same-origin", got)
+			}
+		})
+	}
+}
 func TestRegisterLoginPassword(t *testing.T) {
 	a, _ := testApp(t)
 	h := a.adminHandler()
