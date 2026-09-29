@@ -47,6 +47,42 @@ func TestMeetingTypeEditingAndIsolation(t *testing.T) {
 	}
 }
 
+func TestMeetingTypeActiveToggle(t *testing.T) {
+	a, _ := testApp(t)
+	u := seedHost(t, a, "one")
+	theirs := chatType(t, a, seedHost(t, a, "two"))
+	cookie := sessionFor(t, a, u)
+	mine := chatType(t, a, u)
+	for _, tc := range []struct {
+		name         string
+		id           int64
+		before       bool
+		days, active string
+		wantCode     int
+		wantActive   bool
+	}{
+		{"turn off", mine.ID, true, "12345", "0", 303, false},
+		{"turn on", mine.ID, false, "12345", "1", 303, true},
+		{"turn on without weekdays", mine.ID, false, "", "1", 400, false},
+		{"another host's type", theirs.ID, true, "12345", "0", 404, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, e := a.db.Exec("UPDATE meeting_types SET active=?,days=? WHERE id=?", tc.before, tc.days, tc.id); e != nil {
+				t.Fatal(e)
+			}
+			w := formRequest(a.adminHandler(), fmt.Sprintf("/types/%d/active", tc.id), url.Values{"active": {tc.active}}, true, cookie)
+			if w.Code != tc.wantCode {
+				t.Fatalf("status %d, want %d: %s", w.Code, tc.wantCode, w.Body)
+			}
+			var active bool
+			a.db.QueryRow("SELECT active FROM meeting_types WHERE id=?", tc.id).Scan(&active)
+			if active != tc.wantActive {
+				t.Fatalf("active %v, want %v", active, tc.wantActive)
+			}
+		})
+	}
+}
+
 func TestMeetingTypeLocations(t *testing.T) {
 	a, _ := testApp(t)
 	u := seedHost(t, a, "one")

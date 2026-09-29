@@ -147,6 +147,7 @@ func (a *App) adminHandler() http.Handler {
 	m.HandleFunc("GET /types/{id}", a.authenticated(a.meetingTypePage))
 	m.HandleFunc("POST /types/{id}", a.authenticated(a.saveMeetingType))
 	m.HandleFunc("POST /types/{id}/delete", a.authenticated(a.deleteMeetingType))
+	m.HandleFunc("POST /types/{id}/active", a.authenticated(a.setMeetingTypeActive))
 	m.HandleFunc("POST /locations", a.authenticated(a.addLocation))
 	m.HandleFunc("POST /locations/{id}/default", a.authenticated(a.defaultLocation))
 	m.HandleFunc("POST /locations/{id}/delete", a.authenticated(a.deleteLocation))
