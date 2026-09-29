@@ -33,7 +33,7 @@
         {{range .MeetingTypes}}
         <div class="type-row">
           <div>
-            <strong>{{.Name}}</strong>
+            <strong><a class="type-name" href="{{admin "/types/"}}{{.ID}}">{{.Name}}</a></strong>
             <small>{{.Duration}} min · {{.Timezone}} · {{clock .StartMin}}–{{clock .EndMin}}</small>
             <a href="{{$.BookingURL}}/{{.Slug}}" target="_blank" rel="noopener">{{$.BookingURL}}/{{.Slug}} ↗</a>
           </div>
@@ -42,7 +42,6 @@
             <input type="hidden" name="active" value="{{if .Active}}0{{else}}1{{end}}">
             <button class="switch" role="switch" aria-checked="{{.Active}}" aria-label="{{.Name}} bookable">{{if .Active}}On{{else}}Off{{end}}</button>
           </form>
-          <a class="text-button" href="{{admin "/types/"}}{{.ID}}">Edit</a>
         </div>
         {{else}}
         <div class="empty compact"><p>No meeting types yet. Guests can’t book until you add one.</p></div>
