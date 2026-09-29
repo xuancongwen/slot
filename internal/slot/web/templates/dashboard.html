@@ -37,11 +37,10 @@
             <small>{{.Duration}} min · {{.Timezone}} · {{clock .StartMin}}–{{clock .EndMin}}</small>
             <a href="{{$.BookingURL}}/{{.Slug}}" target="_blank" rel="noopener">{{$.BookingURL}}/{{.Slug}} ↗</a>
           </div>
-          <span class="pill">{{if .Active}}On{{else}}Off{{end}}</span>
           <form method="post" action="{{admin "/types/"}}{{.ID}}/active">
             <input type="hidden" name="csrf" value="{{$.CSRF}}">
             <input type="hidden" name="active" value="{{if .Active}}0{{else}}1{{end}}">
-            <button class="text-button">{{if .Active}}Turn off{{else}}Turn on{{end}}</button>
+            <button class="switch" role="switch" aria-checked="{{.Active}}" aria-label="{{.Name}} bookable">{{if .Active}}On{{else}}Off{{end}}</button>
           </form>
           <a class="text-button" href="{{admin "/types/"}}{{.ID}}">Edit</a>
         </div>
