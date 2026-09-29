@@ -3,6 +3,7 @@ package slot
 import (
 	"context"
 	"database/sql"
+	"slices"
 )
 
 type User struct {
@@ -70,13 +71,19 @@ type MeetingType struct {
 	Slug, Name, Timezone, Days                          string
 	StartMin, EndMin, Duration, Buffer, Notice, Horizon int
 	Active, Approval                                    bool
+	// AllLocations offers every host location plus the guest's own. Otherwise only
+	// the rows in meeting_type_locations, and the guest's own only with GuestLocation.
+	AllLocations, GuestLocation bool
 }
 
-const meetingTypeColumns = "id,user_id,slug,name,timezone,days,start_min,end_min,duration,buffer,notice,horizon,active,approval"
+// AllowsGuestLocation reports whether guests may type a location of their own.
+func (t MeetingType) AllowsGuestLocation() bool { return t.AllLocations || t.GuestLocation }
+
+const meetingTypeColumns = "id,user_id,slug,name,timezone,days,start_min,end_min,duration,buffer,notice,horizon,active,approval,all_locations,guest_location"
 
 func scanMeetingType(s scanner) (MeetingType, error) {
 	var t MeetingType
-	err := s.Scan(&t.ID, &t.UserID, &t.Slug, &t.Name, &t.Timezone, &t.Days, &t.StartMin, &t.EndMin, &t.Duration, &t.Buffer, &t.Notice, &t.Horizon, &t.Active, &t.Approval)
+	err := s.Scan(&t.ID, &t.UserID, &t.Slug, &t.Name, &t.Timezone, &t.Days, &t.StartMin, &t.EndMin, &t.Duration, &t.Buffer, &t.Notice, &t.Horizon, &t.Active, &t.Approval, &t.AllLocations, &t.GuestLocation)
 	return t, err
 }
 
@@ -88,6 +95,7 @@ type Location struct {
 	ID                  int64
 	Kind, Label, Detail string
 	Default             bool
+	Offered             bool // By the meeting type being edited or booked.
 }
 
 // Text is what a booking records as its location: the link or address, or the label alone.
@@ -105,6 +113,37 @@ func (a *App) locations(ctx context.Context, u User) ([]Location, error) {
 		l.Default = u.DefaultLocation.Valid && l.ID == u.DefaultLocation.Int64
 		return l, e
 	}, "SELECT id,kind,label,detail FROM locations WHERE user_id=? ORDER BY position,id", u.ID)
+}
+
+// typeLocations returns all of u's locations, marking those t offers. When t offers
+// only some and not u's default, the first offered one is preselected instead.
+func (a *App) typeLocations(ctx context.Context, u User, t MeetingType) ([]Location, error) {
+	ls, e := a.locations(ctx, u)
+	if e != nil {
+		return nil, e
+	}
+	offered, e := queryAll(ctx, a.db, func(s scanner) (int64, error) {
+		var id int64
+		return id, s.Scan(&id)
+	}, "SELECT location_id FROM meeting_type_locations WHERE meeting_type_id=?", t.ID)
+	if e != nil {
+		return nil, e
+	}
+	hasDefault := false
+	for i := range ls {
+		ls[i].Offered = t.AllLocations || slices.Contains(offered, ls[i].ID)
+		ls[i].Default = ls[i].Default && ls[i].Offered
+		hasDefault = hasDefault || ls[i].Default
+	}
+	if i := slices.IndexFunc(ls, func(l Location) bool { return l.Offered }); i >= 0 && !hasDefault && !t.AllLocations {
+		ls[i].Default = true
+	}
+	return ls, nil
+}
+
+// offeredLocations keeps the locations the meeting type offers.
+func offeredLocations(ls []Location) []Location {
+	return slices.DeleteFunc(ls, func(l Location) bool { return !l.Offered })
 }
 
 type Calendar struct {

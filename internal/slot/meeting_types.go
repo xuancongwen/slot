@@ -1,6 +1,7 @@
 package slot
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"slices"
@@ -32,7 +33,7 @@ func (a *App) freeSlug(r *http.Request, u User, t MeetingType) (string, error) {
 // ownedMeetingType returns the zero MeetingType with no error for /types/new.
 func (a *App) ownedMeetingType(r *http.Request) (MeetingType, error) {
 	if r.PathValue("id") == "" {
-		return MeetingType{Days: "12345", StartMin: 540, EndMin: 1020, Duration: 30, Notice: 120, Horizon: 30, Active: true}, nil
+		return MeetingType{Days: "12345", StartMin: 540, EndMin: 1020, Duration: 30, Notice: 120, Horizon: 30, Active: true, AllLocations: true, GuestLocation: true}, nil
 	}
 	return scanMeetingType(a.db.QueryRowContext(r.Context(), "SELECT "+meetingTypeColumns+" FROM meeting_types WHERE id=? AND user_id=?", r.PathValue("id"), currentUser(r).ID))
 }
@@ -43,11 +44,16 @@ func (a *App) meetingTypePage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	locations, e := a.typeLocations(r.Context(), currentUser(r), t)
+	if e != nil {
+		a.internal(w, r, e)
+		return
+	}
 	title := "New meeting type"
 	if t.ID != 0 {
 		title = t.Name
 	}
-	a.render(w, r, "meeting_type", Page{Title: title, Admin: true, User: currentUser(r), MeetingType: t, Days: days, Timezones: a.timezones, BookingURL: a.cfg.PublicURL + "/b/" + currentUser(r).Slug}, http.StatusOK)
+	a.render(w, r, "meeting_type", Page{Title: title, Admin: true, User: currentUser(r), MeetingType: t, Days: days, Timezones: a.timezones, Locations: locations, BookingURL: a.cfg.PublicURL + "/b/" + currentUser(r).Slug}, http.StatusOK)
 }
 
 func (a *App) saveMeetingType(w http.ResponseWriter, r *http.Request) {
@@ -72,6 +78,8 @@ func (a *App) saveMeetingType(w http.ResponseWriter, r *http.Request) {
 	t.Horizon, e6 = strconv.Atoi(f.Get("horizon"))
 	t.Active = f.Get("active") == "on"
 	t.Approval = f.Get("approval") == "on"
+	t.AllLocations = f.Get("location_mode") != "some"
+	t.GuestLocation = f.Get("guest_location") == "on"
 	t.Days = ""
 	for _, d := range days {
 		for _, v := range f["days"] {
@@ -89,6 +97,10 @@ func (a *App) saveMeetingType(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, http.StatusBadRequest, "Choose at least one available weekday before turning this meeting type on.")
 		return
 	}
+	if !t.AllLocations && len(f["locations"]) == 0 && !t.GuestLocation {
+		a.fail(w, r, http.StatusBadRequest, "Choose at least one place guests can meet, or offer all of them.")
+		return
+	}
 	u := currentUser(r)
 	if f.Get("slug") == "" {
 		if t.Slug, e = a.freeSlug(r, u, t); e != nil {
@@ -96,11 +108,26 @@ func (a *App) saveMeetingType(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if t.ID == 0 {
-		_, e = a.db.ExecContext(r.Context(), `INSERT INTO meeting_types(user_id,slug,name,timezone,days,start_min,end_min,duration,buffer,notice,horizon,active,approval) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, u.ID, t.Slug, t.Name, t.Timezone, t.Days, t.StartMin, t.EndMin, t.Duration, t.Buffer, t.Notice, t.Horizon, t.Active, t.Approval)
-	} else {
-		_, e = a.db.ExecContext(r.Context(), `UPDATE meeting_types SET slug=?,name=?,timezone=?,days=?,start_min=?,end_min=?,duration=?,buffer=?,notice=?,horizon=?,active=?,approval=? WHERE id=? AND user_id=?`, t.Slug, t.Name, t.Timezone, t.Days, t.StartMin, t.EndMin, t.Duration, t.Buffer, t.Notice, t.Horizon, t.Active, t.Approval, t.ID, u.ID)
-	}
+	e = a.inTx(r.Context(), func(tx *sql.Tx) error {
+		var e error
+		if t.ID == 0 {
+			e = tx.QueryRowContext(r.Context(), `INSERT INTO meeting_types(user_id,slug,name,timezone,days,start_min,end_min,duration,buffer,notice,horizon,active,approval,all_locations,guest_location) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id`, u.ID, t.Slug, t.Name, t.Timezone, t.Days, t.StartMin, t.EndMin, t.Duration, t.Buffer, t.Notice, t.Horizon, t.Active, t.Approval, t.AllLocations, t.GuestLocation).Scan(&t.ID)
+		} else {
+			_, e = tx.ExecContext(r.Context(), `UPDATE meeting_types SET slug=?,name=?,timezone=?,days=?,start_min=?,end_min=?,duration=?,buffer=?,notice=?,horizon=?,active=?,approval=?,all_locations=?,guest_location=? WHERE id=? AND user_id=?`, t.Slug, t.Name, t.Timezone, t.Days, t.StartMin, t.EndMin, t.Duration, t.Buffer, t.Notice, t.Horizon, t.Active, t.Approval, t.AllLocations, t.GuestLocation, t.ID, u.ID)
+		}
+		if e != nil {
+			return e
+		}
+		if _, e = tx.ExecContext(r.Context(), "DELETE FROM meeting_type_locations WHERE meeting_type_id=?", t.ID); e != nil {
+			return e
+		}
+		for _, id := range f["locations"] {
+			if _, e = tx.ExecContext(r.Context(), "INSERT OR IGNORE INTO meeting_type_locations(meeting_type_id,location_id) SELECT ?,id FROM locations WHERE id=? AND user_id=?", t.ID, id, u.ID); e != nil {
+				return e
+			}
+		}
+		return nil
+	})
 	if e != nil {
 		if strings.Contains(e.Error(), "UNIQUE") {
 			a.fail(w, r, http.StatusConflict, "You already have a meeting type at that URL.")

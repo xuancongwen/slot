@@ -477,6 +477,23 @@ legend {
   background: var(--danger-soft-hover);
 }
 
+.location-picks {
+  margin-left: 26px;
+}
+
+/* Without :has() support the picks simply stay visible. */
+.location-mode:has(input[value="all"]:checked) .location-picks {
+  display: none;
+}
+
+.danger-zone {
+  border-color: var(--red);
+}
+
+.danger-zone h2 {
+  color: var(--red);
+}
+
 .danger-button {
   background: var(--danger-soft);
   color: var(--red);

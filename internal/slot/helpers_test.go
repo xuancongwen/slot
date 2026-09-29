@@ -124,6 +124,26 @@ func chatType(t *testing.T, a *App, u User) MeetingType {
 	return mt
 }
 
+// restrictedType adds a meeting type offering only the named locations of u.
+func restrictedType(t *testing.T, a *App, u User, slug string, guestLocation bool, labels ...string) MeetingType {
+	t.Helper()
+	r, e := a.db.Exec(`INSERT INTO meeting_types(user_id,slug,name,days,notice,all_locations,guest_location) VALUES(?,?,?,'0123456',0,0,?)`, u.ID, slug, slug, guestLocation)
+	if e != nil {
+		t.Fatal(e)
+	}
+	id, _ := r.LastInsertId()
+	for _, l := range labels {
+		if _, e = a.db.Exec("INSERT INTO meeting_type_locations VALUES(?,?)", id, locationID(t, a, u, l)); e != nil {
+			t.Fatal(e)
+		}
+	}
+	mt, e := scanMeetingType(a.db.QueryRow("SELECT "+meetingTypeColumns+" FROM meeting_types WHERE id=?", id))
+	if e != nil {
+		t.Fatal(e)
+	}
+	return mt
+}
+
 func locationID(t *testing.T, a *App, u User, label string) string {
 	t.Helper()
 	var id int64

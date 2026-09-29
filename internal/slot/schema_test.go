@@ -39,6 +39,9 @@ CREATE TABLE bookings_old (
 INSERT INTO bookings_old SELECT * FROM bookings;
 DROP TABLE bookings;
 ALTER TABLE bookings_old RENAME TO bookings;`,
+	8: `DROP TABLE meeting_type_locations;
+ALTER TABLE meeting_types DROP COLUMN all_locations;
+ALTER TABLE meeting_types DROP COLUMN guest_location;`,
 }
 
 func TestUpgrade(t *testing.T) {
@@ -72,6 +75,10 @@ func TestUpgrade(t *testing.T) {
 			var n int
 			if e = b.db.QueryRow("SELECT count(*) FROM bookings").Scan(&n); e != nil || n != 1 {
 				t.Fatalf("%d bookings kept, error %v", n, e)
+			}
+			// Meeting types from before per-type locations keep offering every location.
+			if e = b.db.QueryRow("SELECT count(*) FROM meeting_types WHERE all_locations=1 AND guest_location=1 AND id NOT IN (SELECT meeting_type_id FROM meeting_type_locations)").Scan(&n); e != nil || n != 1 {
+				t.Fatalf("%d meeting types offer all locations, error %v", n, e)
 			}
 			if ls, e := b.locations(context.Background(), u); e != nil || len(ls) != 2 {
 				t.Fatalf("locations %v, error %v", ls, e)
