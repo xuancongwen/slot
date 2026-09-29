@@ -324,7 +324,7 @@ func TestGuestCalendarPage(t *testing.T) {
 			if got := strings.Contains(w.Body.String(), `<script defer src="https://stats.example.com/script.js" data-website-id="abc"></script>`); got != tc.analytics {
 				t.Errorf("analytics script included = %v, want %v", got, tc.analytics)
 			}
-			if got := strings.Contains(w.Header().Get("Content-Security-Policy"), "connect-src https://stats.example.com;"); got != tc.analytics {
+			if got := strings.Contains(w.Header().Get("Content-Security-Policy"), "connect-src 'self' https://stats.example.com;"); got != tc.analytics {
 				t.Errorf("security policy allows analytics = %v, want %v", got, tc.analytics)
 			}
 		})

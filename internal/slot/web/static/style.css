@@ -569,6 +569,100 @@ legend {
   color: #f4b39f;
 }
 
+.toasts {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(440px, calc(100% - 32px));
+  display: grid;
+  gap: 8px;
+  z-index: 20;
+}
+
+.toasts .alert {
+  margin: 0;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 35%);
+  animation: toast-in .2s ease-out;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+}
+
+/* Grows slowly while a page loads; snaps back once it has faded out. */
+.progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--live);
+  transform: scaleX(0);
+  transform-origin: left;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .3s, transform 0s .3s;
+  z-index: 30;
+}
+
+.progress.active {
+  opacity: 1;
+  transform: scaleX(.9);
+  transition: transform 6s cubic-bezier(.1, .8, .2, 1);
+}
+
+form[aria-busy="true"] button {
+  cursor: progress;
+  opacity: .6;
+}
+
+main:focus {
+  outline: none;
+}
+
+dialog.confirm {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 26px;
+  width: min(400px, calc(100% - 32px));
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 20px 50px rgb(0 0 0 / 45%);
+}
+
+dialog.confirm::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+
+dialog.confirm p {
+  margin: 0;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: .15s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
+
+  .toasts .alert {
+    animation: none;
+  }
+}
+
 .empty {
   text-align: center;
   padding: 42px 10px;

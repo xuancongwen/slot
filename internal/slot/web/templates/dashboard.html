@@ -102,7 +102,7 @@
         {{if not .GoogleConfigured}}
         <div class="alert">Google is not configured yet. Your server owner needs to set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, then restart Slot. See the setup guide.</div>
         {{else}}
-        <form action="{{admin "/oauth/google"}}" method="post">
+        <form action="{{admin "/oauth/google"}}" method="post" data-boost="false">
           <input type="hidden" name="csrf" value="{{.CSRF}}">
           <button class="secondary full">+ Connect or reconnect Google</button>
         </form>

@@ -54,11 +54,12 @@ func (c Config) trackerTag() template.HTML {
 	return template.HTML(b.String())
 }
 
-// trackerCSP lets the tracker's origin serve its script and receive page views.
+// trackerCSP lets the tracker's origin serve its script and receive page views,
+// while pages still load over fetch from their own origin.
 func (c Config) trackerCSP() string {
 	u, _ := url.Parse(c.AnalyticsScript)
 	origin := u.Scheme + "://" + u.Host
-	return "default-src 'none'; style-src 'self'; img-src 'self'; script-src 'self' " + origin + "; connect-src " + origin + "; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+	return "default-src 'none'; style-src 'self'; img-src 'self'; script-src 'self' " + origin + "; connect-src 'self' " + origin + "; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
 }
 
 func (a *App) render(w http.ResponseWriter, r *http.Request, name string, p Page, status int) {

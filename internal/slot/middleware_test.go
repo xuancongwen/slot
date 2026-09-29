@@ -132,3 +132,22 @@ func TestFavicons(t *testing.T) {
 		}
 	}
 }
+
+// Pages load links and forms over fetch, which default-src 'none' would block.
+func TestCSPAllowsSameOriginFetch(t *testing.T) {
+	a, _ := testApp(t)
+	for _, tc := range []struct {
+		name string
+		h    http.Handler
+		path string
+	}{
+		{"public", a.publicHandler(), "/"},
+		{"admin", a.adminHandler(), "/login"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := getRequest(tc.h, tc.path).Header().Get("Content-Security-Policy"); !strings.Contains(got, "connect-src 'self'") {
+				t.Fatalf("Content-Security-Policy = %q, want connect-src 'self'", got)
+			}
+		})
+	}
+}
