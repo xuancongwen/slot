@@ -60,7 +60,7 @@ func TestPublicBookingFlow(t *testing.T) {
 		t.Fatalf("page: %d %s", w.Code, w.Body)
 	}
 	ticket := a.ticket(u.ID, mt, day.Unix())
-	form := url.Values{"ticket": {ticket}, "name": {"Guest <script>alert(1)</script>"}, "email": {"guest@example.com"}, "location": {locationID(t, a, u, "Google Meet")}, "tz": {"Asia/Singapore"}}
+	form := url.Values{"ticket": {ticket}, "name": {"Guest <script>alert(1)</script>"}, "email": {"guest@example.com"}, "location": {locationID(t, a, u, "Google Meet")}, "tz": {"Asia/Singapore"}, "reason": {"  Plan the <b>launch</b>  "}}
 	w = formRequest(h, "/b/alex/chat", form, false)
 	if w.Code != 303 {
 		t.Fatalf("book: %d %s", w.Code, w.Body)
@@ -83,12 +83,15 @@ func TestPublicBookingFlow(t *testing.T) {
 	if strings.Contains(w.Body.String(), "Guest <script>") {
 		t.Fatal("unescaped guest name")
 	}
+	if !strings.Contains(w.Body.String(), "Plan the &lt;b&gt;launch&lt;/b&gt;") {
+		t.Fatal("reason missing or unescaped on manage page")
+	}
 	if want := day.In(mustLoad(t, "Asia/Singapore")).Format("15:04"); !strings.Contains(w.Body.String(), want) {
 		t.Fatalf("manage page not in guest timezone, want %s", want)
 	}
 	w = getRequest(h, manage+"/event.ics")
-	if w.Code != 200 || !strings.Contains(w.Body.String(), "BEGIN:VEVENT") {
-		t.Fatal("ICS missing")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "BEGIN:VEVENT") || !strings.Contains(w.Body.String(), "DESCRIPTION:Plan the <b>launch</b>\r\n") {
+		t.Fatalf("ICS: %d %s", w.Code, w.Body)
 	}
 	w = formRequest(h, manage+"/cancel", url.Values{}, false)
 	if w.Code != 303 {
@@ -97,6 +100,20 @@ func TestPublicBookingFlow(t *testing.T) {
 	a.reconcile(context.Background())
 	if f.deleteCalls != 1 {
 		t.Fatal("not cancelled upstream")
+	}
+}
+
+func TestBookingRejectsLongReason(t *testing.T) {
+	a, _ := testApp(t)
+	u := seedHost(t, a, "alex")
+	mt := chatType(t, a, u)
+	form := url.Values{"ticket": {a.ticket(u.ID, mt, tomorrow().Unix())}, "name": {"Guest"}, "email": {"guest@example.com"}, "reason": {strings.Repeat("x", 1001)}}
+	if w := formRequest(a.publicHandler(), "/b/alex/chat", form, false); w.Code != 400 {
+		t.Fatalf("book: %d %s", w.Code, w.Body)
+	}
+	var n int
+	if a.db.QueryRow("SELECT count(*) FROM bookings").Scan(&n); n != 0 {
+		t.Fatal("booking saved with oversized reason")
 	}
 }
 

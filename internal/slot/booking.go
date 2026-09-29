@@ -281,6 +281,11 @@ func (a *App) book(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, http.StatusBadRequest, "Enter your name and a valid email address.")
 		return
 	}
+	reason := strings.TrimSpace(r.PostForm.Get("reason"))
+	if len(reason) > 1000 {
+		a.fail(w, r, http.StatusBadRequest, "Keep the reason for meeting to 1000 characters.")
+		return
+	}
 	location, meet, e := a.chosenLocation(r, u)
 	if e != nil {
 		a.fail(w, r, http.StatusBadRequest, "Choose where to meet, or enter a location up to 500 characters.")
@@ -312,7 +317,7 @@ func (a *App) book(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, http.StatusConflict, "That time is no longer available. Please choose another slot.")
 		return
 	}
-	b := Booking{ID: id, UserID: u.ID, CalendarID: u.WriteCalendar.Int64, GuestName: name, GuestEmail: email, Start: start, End: start + int64(t.Duration*60), BlockStart: start - int64(t.Buffer*60), BlockEnd: start + int64((t.Duration+t.Buffer)*60), Title: t.Name + ": " + name + " / " + u.Name, Location: location, Meet: meet, Timezone: t.Timezone, GuestTimezone: guestTZ, ManageToken: token, Status: "pending", Created: time.Now().Unix()}
+	b := Booking{ID: id, UserID: u.ID, CalendarID: u.WriteCalendar.Int64, GuestName: name, GuestEmail: email, Start: start, End: start + int64(t.Duration*60), BlockStart: start - int64(t.Buffer*60), BlockEnd: start + int64((t.Duration+t.Buffer)*60), Title: t.Name + ": " + name + " / " + u.Name, Location: location, Meet: meet, Timezone: t.Timezone, GuestTimezone: guestTZ, Reason: reason, ManageToken: token, Status: "pending", Created: time.Now().Unix()}
 	if e = a.reserve(r.Context(), b); e != nil {
 		if existing, err := a.getBooking(r.Context(), token); err == nil {
 			http.Redirect(w, r, "/manage/"+existing.ManageToken, http.StatusSeeOther)

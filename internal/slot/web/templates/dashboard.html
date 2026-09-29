@@ -178,7 +178,7 @@
         <tbody>
           {{range .Bookings}}
           <tr>
-            <td><strong>{{.GuestName}}</strong><small>{{.GuestEmail}}</small></td>
+            <td><strong>{{.GuestName}}</strong><small>{{.GuestEmail}}</small>{{if .Reason}}<small class="reason">{{.Reason}}</small>{{end}}</td>
             <td>{{dateTime .Start .Timezone}}<small>{{.Location}}</small></td>
             <td><span class="pill">{{.Status}}</span>{{if .LastError}}<small class="sync-error">{{.LastError}}</small>{{end}}</td>
             <td>

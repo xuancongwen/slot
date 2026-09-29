@@ -8,11 +8,12 @@ import (
 // Bump schemaVersion whenever schema.sql changes shape, and add the step that brings
 // the previous version's database up to it. Databases older than the first step
 // predate migrations and must start fresh.
-const schemaVersion = 5
+const schemaVersion = 6
 
 func migrate(db *sql.DB) error {
 	steps := map[int]string{
 		4: "ALTER TABLE locations ADD COLUMN position INTEGER NOT NULL DEFAULT 0;",
+		5: "ALTER TABLE bookings ADD COLUMN reason TEXT NOT NULL DEFAULT '';",
 	}
 	var version, tables int
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {

@@ -101,8 +101,10 @@ func TestGoogleInsertRequestsMeet(t *testing.T) {
 	c, _ := a.bookingCalendar(context.Background(), u.WriteCalendar.Int64)
 	b := bookingFor(u, tomorrow())
 	b.Meet = true
+	b.Reason = "Plan the launch"
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
+			Description    string
 			ConferenceData struct {
 				CreateRequest struct {
 					RequestID             string
@@ -114,6 +116,9 @@ func TestGoogleInsertRequestsMeet(t *testing.T) {
 		req := body.ConferenceData.CreateRequest
 		if r.URL.Query().Get("conferenceDataVersion") != "1" || req.RequestID != b.ID || req.ConferenceSolutionKey.Type != "hangoutsMeet" {
 			t.Errorf("Meet not requested: %s %+v", r.URL.RawQuery, req)
+		}
+		if !strings.HasPrefix(body.Description, "Plan the launch\n\nManage or cancel: ") {
+			t.Errorf("description %q", body.Description)
 		}
 		json.NewEncoder(w).Encode(map[string]string{"hangoutLink": fakeMeetLink})
 	}))
