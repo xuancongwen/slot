@@ -13,7 +13,7 @@ A small Google Calendar booking app for a home lab. One Go process, one SQLite d
 - Multiple meeting types per user, each with its own length, IANA timezone, weekly availability, buffers, minimum notice, and booking horizon. A per-type timezone lets you publish a schedule for a trip alongside your usual one.
 - Optional host approval per meeting type. A request holds its time, but Google invites the guest only after the host approves it from the admin booking list. Because the booking page accepts any email address, this stops strangers from using your calendar to send invitations to people who never asked for them.
 - Disposable inboxes, such as mailinator.com and their subdomains, cannot book. The list is [disposable-email-domains](https://github.com/disposable-email-domains/disposable-email-domains) (CC0), embedded at build time; refresh it with `make disposable-domains`.
-- Full days off per user.
+- Full days off per user, as single dates or date ranges such as a trip.
 - Locations in each user's profile: Google Meet (a fresh link per booking, created by Google) plus any links or addresses, such as a Zoom room. Guests pick one, the default preselected, or enter their own.
 - Pause/publish controls, upcoming and past booking list, cancellation, and password changes.
 - Google invitations and an optional `.ics` download.
@@ -155,7 +155,7 @@ Google Calendar does not offer an atomic “insert only if still free” operati
 
 ## Intentional first-pass limits
 
-- One daily working-hours interval per meeting type, and full-day exceptions per host.
+- One daily working-hours interval per meeting type, and full-day exceptions (single dates or ranges) per host.
 - Guests pick a date on a month calendar and see times in their own timezone, detected by the browser and changeable on the page. Without JavaScript the page shows the meeting type's timezone. Calendar invitations display in the guest's own calendar timezone.
 - Reschedule by cancelling and booking again. No payments, round-robin teams, reminder service, or per-booking Zoom meetings; a Zoom location is a fixed room link.
 - No account email verification, forgotten-password email flow, or site-wide super-admin. Protect registration through the private admin interface and optional code.

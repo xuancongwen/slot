@@ -42,6 +42,13 @@ ALTER TABLE bookings_old RENAME TO bookings;`,
 	8: `DROP TABLE meeting_type_locations;
 ALTER TABLE meeting_types DROP COLUMN all_locations;
 ALTER TABLE meeting_types DROP COLUMN guest_location;`,
+	9: `CREATE TABLE blocks_old (
+ id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
+ day TEXT NOT NULL, UNIQUE(user_id,day)
+);
+INSERT INTO blocks_old(id,user_id,day) SELECT id,user_id,first_day FROM blocks;
+DROP TABLE blocks;
+ALTER TABLE blocks_old RENAME TO blocks;`,
 }
 
 func TestUpgrade(t *testing.T) {
@@ -51,6 +58,10 @@ func TestUpgrade(t *testing.T) {
 			u := seedHost(t, a, "alex")
 			// A booking from before the upgrade must survive the bookings rebuild.
 			if e := a.reserve(context.Background(), bookingFor(u, tomorrow().AddDate(0, 0, 1))); e != nil {
+				t.Fatal(e)
+			}
+			// As does a day off, which versions before 10 store as a single day.
+			if _, e := a.db.Exec("INSERT INTO blocks(user_id,first_day,last_day) VALUES(?,'2026-12-25','2026-12-25')", u.ID); e != nil {
 				t.Fatal(e)
 			}
 			for v := schemaVersion - 1; v >= from; v-- {
@@ -79,6 +90,9 @@ func TestUpgrade(t *testing.T) {
 			// Meeting types from before per-type locations keep offering every location.
 			if e = b.db.QueryRow("SELECT count(*) FROM meeting_types WHERE all_locations=1 AND guest_location=1 AND id NOT IN (SELECT meeting_type_id FROM meeting_type_locations)").Scan(&n); e != nil || n != 1 {
 				t.Fatalf("%d meeting types offer all locations, error %v", n, e)
+			}
+			if offs, e := queryAll(context.Background(), b.db, scanDayOff, "SELECT id,first_day,last_day FROM blocks"); e != nil || len(offs) != 1 || offs[0].First != "2026-12-25" || offs[0].Last != "2026-12-25" {
+				t.Fatalf("days off %+v, error %v", offs, e)
 			}
 			if ls, e := b.locations(context.Background(), u); e != nil || len(ls) != 2 {
 				t.Fatalf("locations %v, error %v", ls, e)

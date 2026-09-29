@@ -17,7 +17,7 @@ type Page struct {
 	Calendars                                           []Calendar
 	Accounts                                            []Account
 	Bookings                                            []Booking
-	Blocks                                              []string
+	DaysOff                                             []DayOff
 	Days                                                []DayOption
 	MeetingTypes                                        []MeetingType
 	Locations                                           []Location
@@ -152,8 +152,8 @@ func (a *App) adminHandler() http.Handler {
 	m.HandleFunc("POST /locations/{id}/delete", a.authenticated(a.deleteLocation))
 	m.HandleFunc("POST /locations/{id}/move", a.authenticated(a.moveLocation))
 	m.HandleFunc("POST /calendars", a.authenticated(a.saveCalendarSettings))
-	m.HandleFunc("POST /blocks", a.authenticated(a.blockDay))
-	m.HandleFunc("POST /blocks/delete", a.authenticated(a.unblockDay))
+	m.HandleFunc("POST /blocks", a.authenticated(a.blockDays))
+	m.HandleFunc("POST /blocks/delete", a.authenticated(a.unblockDays))
 	m.HandleFunc("POST /oauth/google", a.authenticated(a.oauthStart))
 	m.HandleFunc("GET /oauth/callback", a.authenticated(a.oauthCallback))
 	m.HandleFunc("POST /calendars/refresh", a.authenticated(a.refreshCalendars))

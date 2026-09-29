@@ -146,6 +146,20 @@ func offeredLocations(ls []Location) []Location {
 	return slices.DeleteFunc(ls, func(l Location) bool { return !l.Offered })
 }
 
+// A DayOff blocks every date from First through Last, as YYYY-MM-DD in each meeting type's timezone.
+type DayOff struct {
+	ID          int64
+	First, Last string
+}
+
+// Covers reports whether day, as YYYY-MM-DD, falls in the range.
+func (d DayOff) Covers(day string) bool { return d.First <= day && day <= d.Last }
+
+func scanDayOff(s scanner) (DayOff, error) {
+	var d DayOff
+	return d, s.Scan(&d.ID, &d.First, &d.Last)
+}
+
 type Calendar struct {
 	ID, AccountID                  int64
 	GoogleID, Name, Role, Identity string
