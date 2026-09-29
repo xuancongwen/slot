@@ -1,6 +1,6 @@
 # Slot
 
-A small Google Calendar booking app for a home lab. One Go process, one SQLite database, two HTTP listeners. Server-rendered HTML and local CSS, with a small script that loads pages and forms in place so navigation feels like an app. Everything still works without JavaScript. No Node runtime, Redis, mail server, or external frontend assets.
+A small Google Calendar booking app for a home lab. One Go process, one SQLite database, two HTTP listeners. Server-rendered HTML and local CSS, with a small script that loads pages and forms in place so navigation feels like an app. Everything still works without JavaScript. No Node runtime, Redis, or mail server; the only external asset is an analytics script on the guest booking page.
 
 > **Status: not yet functional.** Slot is a work in progress and is not ready for use. The features below describe the intended first version, not a working release.
 
@@ -11,6 +11,7 @@ A small Google Calendar booking app for a home lab. One Go process, one SQLite d
 - Combined free/busy checks across selected calendars; one destination calendar for bookings.
 - A public booking link for each user: `/b/your-name`, listing their meeting types at `/b/your-name/type`, or showing the calendar directly when there is only one. No public user directory. With `SINGLE_HOST_URL_NAME` set, that host's page is the site root instead.
 - Multiple meeting types per user, each with its own length, IANA timezone, weekly availability, buffers, minimum notice, and booking horizon. A per-type timezone lets you publish a schedule for a trip alongside your usual one.
+- Optional host approval per meeting type. A request holds its time, but Google invites the guest only after the host approves it from the admin booking list. Because the booking page accepts any email address, this stops strangers from using your calendar to send invitations to people who never asked for them.
 - Full days off per user.
 - Locations in each user's profile: Google Meet (a fresh link per booking, created by Google) plus any links or addresses, such as a Zoom room. Guests pick one, the default preselected, or enter their own.
 - Pause/publish controls, upcoming and past booking list, cancellation, and password changes.
@@ -125,6 +126,8 @@ References: [Google web-server OAuth](https://developers.google.com/identity/pro
 | `REGISTRATION_OPEN` | `true` | Set to `false` to disable host registration. Existing users can still sign in. |
 | `REGISTRATION_CODE` | unset | Optional shared code required to register a host. Required with `SINGLE_HOST_URL_NAME`. |
 | `SINGLE_HOST_URL_NAME` | unset | URL name of the only host, e.g. `sam`. Their booking page is served at the public root, and registration accepts only that name, once. |
+| `ANALYTICS_SCRIPT_URL` | unset | Optional page view tracker loaded on booking pages, e.g. a self-hosted Umami or Plausible `script.js`. Its origin is added to the booking pages' `script-src` and `connect-src` security policy. |
+| `ANALYTICS_SCRIPT_ATTRS` | unset | Space-separated `data-*` attributes for that script tag, e.g. `data-website-id=abc123` (Umami) or `data-domain=book.example.com` (Plausible). |
 | `PUBLIC_PORT`, `ADMIN_PORT` | `8080`, `8081` | Compose host-port mappings only; `ADMIN_PORT` matters only for a separate admin. Update origins and Google redirects if changed. |
 
 The standalone binary does **not** read `.env`. Export variables in the shell or use your service manager's environment file. Compose reads `.env` for the interpolation shown in `compose.yaml`.
@@ -137,10 +140,11 @@ The app does not trust `X-Forwarded-For`. Its in-process rate limit therefore gr
 
 1. Slot generation follows the meeting type's timezone and weekly hours. Google is queried for current busy intervals across selected calendars, in batches of at most 50 per account.
 2. Availability is checked again on submission. Errors or missing Google calendar results close availability rather than treating the calendar as empty.
-3. An SQLite trigger reserves the interval atomically. Pending and cancelling bookings block time too. Hosts using the same Google destination calendar cannot reserve overlapping times through Slot.
+3. An SQLite trigger reserves the interval atomically. Requests awaiting approval, pending bookings, and cancelling bookings block time too. Hosts using the same Google destination calendar cannot reserve overlapping times through Slot.
 4. A background worker runs every 15 seconds and inserts the Google event using a stable ID. A timed-out write can be retried without intentionally creating a second event. The signed form ticket makes duplicate form submissions return the same booking.
 5. The booking is marked confirmed only after Google accepts it or an earlier insertion is verified. Google is asked to notify the guest. The confirmation page accurately describes pending states and refreshes while waiting.
 6. Cancellation is also durable: the slot is not released until Google confirms deletion or reports that the event is already absent.
+7. Every five minutes until it ends, each confirmed booking is compared with its Google event. Deleting the event in Google cancels the booking. Moving it moves the booking and its buffers. If the guest declines, Slot removes the event and frees the time. When Google can't be reached, nothing changes and the admin booking list shows the error.
 
 Google failures back off up to one hour. The admin booking list shows sync errors and offers **Retry sync** and **Cancel**. A pending reservation does not silently expire: a timeout may mean Google already created the event. Reconnect the account if its authorization has expired.
 
@@ -155,7 +159,7 @@ Google Calendar does not offer an atomic “insert only if still free” operati
 - Reschedule by cancelling and booking again. No payments, round-robin teams, reminder service, or per-booking Zoom meetings; a Zoom location is a fixed room link.
 - No account email verification, forgotten-password email flow, or site-wide super-admin. Protect registration through the private admin interface and optional code.
 - Reconnect/refresh Google accounts from the admin page. This version does not include account deletion or a disconnect UI; Google permissions can be revoked from the Google account, which causes affected booking operations to fail closed until reconnected or reconfigured.
-- Google free/busy is live, but external event edits/deletions do not rewrite Slot's booking records. Manage Slot bookings in Slot. If someone deletes a Slot event directly in Google, cancel its record in Slot to release the local reservation.
+- Changes made in Google reach Slot within about five minutes, so a slot freed or moved there can briefly still look taken, or free, on the booking page. Edits to anything other than the time, such as the title or location, are not copied back.
 - Invitations are delivered by Google, subject to its policies, quotas, and the guest's invitation settings. Slot does not run SMTP or guarantee email delivery.
 - Run **one app instance per database**. SQLite and the worker are designed for a small single-server deployment; do not run replicas against a shared network-mounted database.
 
@@ -167,7 +171,7 @@ The data directory contains the SQLite database, WAL/SHM files while running, an
 
 For the simplest consistent backup, stop Slot, copy/archive the entire data directory or named volume, then restart. To restore, stop the app and restore that complete backup with permissions suitable for the service user (container UID 65532). For online backups, use SQLite's backup API or a WAL-aware backup tool; copying only a live `.db` file is insufficient.
 
-Booking names/emails and host profile data are stored in SQLite as plaintext; only Google tokens are encrypted. Secure the data directory and backups accordingly. No analytics or third-party frontend requests are included.
+Booking names/emails and host profile data are stored in SQLite as plaintext; only Google tokens are encrypted. Secure the data directory and backups accordingly. No analytics or third-party frontend requests are made unless you set `ANALYTICS_SCRIPT_URL`.
 
 ## Development and verification
 

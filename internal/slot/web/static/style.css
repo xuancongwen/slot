@@ -1,19 +1,22 @@
 :root {
-  --ink: #263b35;
-  --muted: #68786f;
-  --paper: #f5f4ee;
-  --line: #dedfd5;
+  color-scheme: dark;
+  --ink: #e3e8e2;
+  --muted: #9aa69f;
+  --paper: #121815;
+  --line: #2c3833;
   --accent: #d9f185;
-  --green: #244c3d;
-  --white: #fffef9;
+  /* Text on accent and other light fills; the page ink is too light there. */
+  --on-accent: #1a2a13;
+  --green: #2f6b52;
+  --card: #1a221e;
   --live: #15803d;
   /* Fills for secondary controls, so no button sits bare on the card. */
-  --soft: #e8eee0;
-  --soft-hover: #dae4cf;
-  --soft-line: #c3cfba;
-  --danger-soft: #fbeae6;
-  --danger-soft-hover: #f4d6ce;
-  --red: #b42318;
+  --soft: #25302b;
+  --soft-hover: #2f3c36;
+  --soft-line: #3a4842;
+  --danger-soft: #3a211d;
+  --danger-soft-hover: #4a2a24;
+  --red: #f0907f;
 }
 
 * {
@@ -40,7 +43,7 @@ a:hover {
   text-decoration-thickness: 2px;
 }
 
-button, input, select {
+button, input, select, textarea {
   font: inherit;
 }
 
@@ -64,7 +67,7 @@ button:hover, .button:hover {
   filter: brightness(1.1);
 }
 
-button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline: 3px solid #8dba58;
   outline-offset: 3px;
 }
@@ -155,7 +158,7 @@ h2 {
 }
 
 .card {
-  background: var(--white);
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 30px;
@@ -179,7 +182,7 @@ h2 {
 }
 
 .link-banner {
-  background: #ecebe4;
+  background: #1f2823;
   border: 1px solid var(--line);
   padding: 25px 30px;
   border-radius: 10px;
@@ -239,10 +242,10 @@ label {
   margin-bottom: 19px;
 }
 
-input:not([type=checkbox]), select {
+input:not([type=checkbox]), select, textarea {
   width: 100%;
-  border: 1px solid #cdd3c9;
-  background: #fffefb;
+  border: 1px solid #3a4842;
+  background: #111714;
   color: var(--ink);
   border-radius: 6px;
   padding: 11px 12px;
@@ -251,12 +254,21 @@ input:not([type=checkbox]), select {
   min-width: 0;
 }
 
-input::placeholder {
-  color: #97a095;
+input::placeholder, textarea::placeholder {
+  color: #6c7a72;
 }
 
 select {
   font-size: 13px;
+}
+
+textarea {
+  resize: vertical;
+}
+
+.reason {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 
 .form-grid {
@@ -322,6 +334,7 @@ legend {
 .day-options input:checked+span {
   background: var(--accent);
   border-color: #bdcf87;
+  color: var(--on-accent);
 }
 
 .day-options input:focus-visible+span {
@@ -338,7 +351,7 @@ legend {
 }
 
 .check-row input {
-  accent-color: var(--green);
+  accent-color: var(--accent);
   width: 16px;
   height: 16px;
   flex-shrink: 0;
@@ -440,7 +453,7 @@ legend {
   border: 0;
   border-radius: 6px;
   background: var(--soft);
-  color: var(--green);
+  color: var(--accent);
   font-size: 12px;
   font-weight: 600;
   text-decoration: none;
@@ -453,7 +466,7 @@ legend {
 }
 
 .danger, .sync-error {
-  color: #a14739;
+  color: #f0907f;
 }
 
 .text-button.danger {
@@ -464,6 +477,23 @@ legend {
   background: var(--danger-soft-hover);
 }
 
+.location-picks {
+  margin-left: 26px;
+}
+
+/* Without :has() support the picks simply stay visible. */
+.location-mode:has(input[value="all"]:checked) .location-picks {
+  display: none;
+}
+
+.danger-zone {
+  border-color: var(--red);
+}
+
+.danger-zone h2 {
+  color: var(--red);
+}
+
 .danger-button {
   background: var(--danger-soft);
   color: var(--red);
@@ -472,7 +502,7 @@ legend {
 
 .danger-button:hover {
   background: var(--red);
-  color: white;
+  color: var(--on-accent);
   filter: none;
 }
 
@@ -509,11 +539,11 @@ legend {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  background: #edf4df;
-  border: 1px solid #d3e2bc;
+  background: #1f2d1c;
+  border: 1px solid #33492c;
   border-radius: 7px;
   padding: 14px 18px;
-  color: #425c32;
+  color: #c5e0a5;
   font-size: 13px;
   margin-bottom: 24px;
 }
@@ -534,9 +564,9 @@ legend {
 }
 
 .alert.error {
-  background: #fff0e9;
-  border-color: #edd1c2;
-  color: #8a4230;
+  background: #3a211b;
+  border-color: #5a3024;
+  color: #f4b39f;
 }
 
 .toasts {
@@ -552,7 +582,7 @@ legend {
 
 .toasts .alert {
   margin: 0;
-  box-shadow: 0 10px 30px rgb(38 59 53 / 18%);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 35%);
   animation: toast-in .2s ease-out;
 }
 
@@ -596,13 +626,13 @@ dialog.confirm {
   border-radius: 12px;
   padding: 26px;
   width: min(400px, calc(100% - 32px));
-  background: var(--white);
+  background: var(--card);
   color: var(--ink);
-  box-shadow: 0 20px 50px rgb(38 59 53 / 25%);
+  box-shadow: 0 20px 50px rgb(0 0 0 / 45%);
 }
 
 dialog.confirm::backdrop {
-  background: rgb(38 59 53 / 35%);
+  background: rgb(0 0 0 / 55%);
 }
 
 dialog.confirm p {
@@ -683,12 +713,12 @@ td small {
 }
 
 td .sync-error {
-  color: #a14739;
+  color: #f0907f;
 }
 
 .pill {
   display: inline-block;
-  background: #edf0e5;
+  background: #26312c;
   padding: 4px 9px;
   border-radius: 20px;
   font-size: 10px;
@@ -778,10 +808,15 @@ td .sync-error {
 .slot:hover {
   background: var(--accent);
   border-color: #afc674;
+  color: var(--on-accent);
 }
 
 .slot span {
   color: var(--muted);
+}
+
+.slot:hover span {
+  color: var(--on-accent);
 }
 
 .timezone-form {
@@ -852,23 +887,23 @@ table.month {
   place-items: center;
   border-radius: 50%;
   font-size: 13px;
-  color: #a3ada6;
+  color: #56635c;
 }
 
 a.day {
-  color: var(--green);
-  background: #edf3d6;
+  color: var(--accent);
+  background: #2b3620;
   font-weight: 600;
   text-decoration: none;
 }
 
 a.day:hover {
-  background: var(--accent);
+  background: #3a4a26;
 }
 
 a.day.selected {
-  background: var(--green);
-  color: var(--white);
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 .day-times .slots {
@@ -891,8 +926,8 @@ a.day.selected {
 }
 
 .selected-time {
-  background: #eff2e6;
-  border: 1px solid #d9e0ce;
+  background: #212b26;
+  border: 1px solid #33413a;
   border-radius: 7px;
   padding: 19px;
   margin-bottom: 26px;
@@ -947,6 +982,7 @@ a.day.selected {
 
 .confirmation-mark {
   background: var(--accent);
+  color: var(--on-accent);
   border-radius: 50%;
   width: 52px;
   height: 52px;
@@ -957,7 +993,8 @@ a.day.selected {
 }
 
 .confirmation-mark.pending {
-  background: #ecebcf;
+  background: #3d3b22;
+  color: var(--ink);
 }
 
 .landing {

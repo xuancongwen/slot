@@ -41,20 +41,32 @@
       <label>Email address
         <input name="email" type="email" autocomplete="email" maxlength="254" required placeholder="you@example.com">
       </label>
+      <label>Reason for meeting <span class="optional">optional</span>
+        <textarea name="reason" maxlength="1000" rows="3" placeholder="What would you like to discuss?"></textarea>
+      </label>
+      {{if or .Locations .MeetingType.AllowsGuestLocation}}
       <fieldset>
         <legend>Where to meet</legend>
         {{range .Locations}}
-        <label class="check-row"><input type="radio" name="location" value="{{.ID}}" {{if .Default}}checked{{end}}><span>{{.Label}}<small>{{if eq .Kind "meet"}}Link sent with the invitation{{else}}{{.Detail}}{{end}}</small></span></label>
+        <label class="check-row"><input type="radio" name="location" value="{{.ID}}" {{if .Default}}checked{{end}}{{if not $.MeetingType.AllowsGuestLocation}} required{{end}}><span>{{.Label}}<small>{{if eq .Kind "meet"}}Link sent with the invitation{{else}}{{.Detail}}{{end}}</small></span></label>
         {{end}}
+        {{if .MeetingType.AllowsGuestLocation}}
         <label>{{if .Locations}}Or somewhere else{{else}}Location{{end}} <span class="optional">optional</span>
           <input name="custom_location" maxlength="500" placeholder="Phone number, address, or link">
         </label>
+        {{end}}
       </fieldset>
+      {{end}}
       <div class="honeypot" aria-hidden="true">
         <label>Leave this empty<input name="website" tabindex="-1" autocomplete="off"></label>
       </div>
+      {{if .MeetingType.Approval}}
+      <button class="full">Request this time</button>
+      <p class="hint">Your host will receive your name, email, and reason for meeting, and reviews each request. Google will send a calendar invitation if it’s approved.</p>
+      {{else}}
       <button class="full">Book this time</button>
-      <p class="hint">Your host will receive your name and email. Google will send a calendar invitation once the booking is confirmed.</p>
+      <p class="hint">Your host will receive your name, email, and reason for meeting. Google will send a calendar invitation once the booking is confirmed.</p>
+      {{end}}
     </form>
     {{else if .Weeks}}
     <h2>Choose a day & time</h2>

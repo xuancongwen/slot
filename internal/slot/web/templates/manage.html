@@ -10,6 +10,13 @@
     <div class="confirmation-mark pending">◷</div>
     <h1>Confirming<br>with Google</h1>
     <p>This slot is reserved while we confirm it with Google. This page updates automatically. If it stays pending, contact your host.</p>
+    {{else if eq .Booking.Status "requested"}}
+    <div class="confirmation-mark pending">◷</div>
+    <h1>Waiting for<br>approval</h1>
+    <p>This time is held for you while {{.User.Name}} reviews your request. If it’s approved, Google will send you a calendar invitation.</p>
+    {{else if eq .Booking.Status "declined"}}
+    <h1>Request<br>declined</h1>
+    <p>{{.User.Name}} can’t meet at this time. You can request another from their booking page.</p>
     {{else if eq .Booking.Status "cancel_pending"}}
     <h1>Cancellation<br>in progress</h1>
     <p>We’re updating Google Calendar. The slot stays reserved until that finishes.</p>
@@ -23,6 +30,7 @@
       {{if isLink .Booking.Location}}<a href="{{.Booking.Location}}" rel="noopener">{{.Booking.Location}}</a>{{else if .Booking.Location}}<span>{{.Booking.Location}}</span>{{else if .Booking.Meet}}<span>Google Meet link on its way with the invitation</span>{{end}}
     </div>
     <p class="hint">{{.Booking.GuestName}} · {{.Booking.GuestEmail}}</p>
+    {{if .Booking.Reason}}<p class="reason">{{.Booking.Reason}}</p>{{end}}
 
     {{if eq .Booking.Status "confirmed"}}
     <a class="button full" href="/manage/{{.Booking.ManageToken}}/event.ics" download>Download calendar event</a>
@@ -34,6 +42,11 @@
     <form method="post" action="/manage/{{.Booking.ManageToken}}/cancel" data-confirm="Cancel this booking?">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <button class="text-button danger">Cancel booking</button>
+    </form>
+    {{else if eq .Booking.Status "requested"}}
+    <form method="post" action="/manage/{{.Booking.ManageToken}}/cancel" data-confirm="Withdraw this request?">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button class="text-button danger">Withdraw request</button>
     </form>
     {{end}}
     <p class="hint">Save this page’s link to manage your booking. Anyone with the link can cancel it.</p>

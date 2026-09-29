@@ -90,6 +90,10 @@ function prefetch(link) {
   window.setTimeout(() => prefetches.delete(url.href), 10000);
 }
 
+function headScripts(doc) {
+  return [...doc.head.querySelectorAll('script[src]')].map(script => script.getAttribute('src')).join(' ');
+}
+
 async function navigate(href, { method = 'GET', body = null, mode = 'push', scroll } = {}) {
   navigation?.abort();
   const current = navigation = new AbortController();
@@ -121,6 +125,12 @@ async function navigate(href, { method = 'GET', body = null, mode = 'push', scro
     const target = new URL(response.url);
     // Redirects drop the fragment, so carry over the one that was asked for.
     if (!target.hash) target.hash = url.hash;
+    // Head scripts, such as the booking page tracker, and the security policy
+    // that allows them belong to the whole document, so a change needs a real load.
+    if (headScripts(page) !== headScripts(document)) {
+      location[mode === 'push' ? 'assign' : 'replace'](target);
+      return;
+    }
     render(page, target, mode, scroll);
   } catch (error) {
     if (error.name === 'AbortError') return;

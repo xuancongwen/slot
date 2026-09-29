@@ -61,6 +61,29 @@ func (a *App) cancelAdmin(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, a.adminURL("/?notice=cancelled"), http.StatusSeeOther)
 }
 
+// approveAdmin hands a request to the worker, which creates the event and invites the guest.
+func (a *App) approveAdmin(w http.ResponseWriter, r *http.Request) {
+	a.decide(w, r, "UPDATE bookings SET status='pending',next_attempt=0 WHERE id=? AND user_id=? AND status='requested' AND start>?", "approved")
+}
+
+func (a *App) declineAdmin(w http.ResponseWriter, r *http.Request) {
+	a.decide(w, r, "UPDATE bookings SET status='declined' WHERE id=? AND user_id=? AND status='requested' AND start>?", "declined")
+}
+
+// decide applies the host's answer to one of their upcoming requests.
+func (a *App) decide(w http.ResponseWriter, r *http.Request, query, notice string) {
+	res, e := a.db.ExecContext(r.Context(), query, r.PathValue("id"), currentUser(r).ID, time.Now().Unix())
+	if e != nil {
+		a.internal(w, r, e)
+		return
+	}
+	if n, e := res.RowsAffected(); e != nil || n == 0 {
+		a.fail(w, r, http.StatusConflict, "Only upcoming requests can be approved or declined. The guest may have cancelled.")
+		return
+	}
+	http.Redirect(w, r, a.adminURL("/?notice="+notice), http.StatusSeeOther)
+}
+
 func (a *App) retryAdmin(w http.ResponseWriter, r *http.Request) {
 	b, e := a.ownedBooking(r)
 	if e != nil {
@@ -103,7 +126,7 @@ func (a *App) ics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="booking.ics"`)
 	format := func(n int64) string { return time.Unix(n, 0).UTC().Format("20060102T150405Z") }
-	for _, line := range []string{"BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Slot//Booking//EN", "BEGIN:VEVENT", "UID:" + b.ID + "@slot", "DTSTAMP:" + format(b.Created), "DTSTART:" + format(b.Start), "DTEND:" + format(b.End), "SUMMARY:" + icsEscape(b.Title), "LOCATION:" + icsEscape(b.Location), "URL:" + a.cfg.PublicURL + "/manage/" + b.ManageToken, "END:VEVENT", "END:VCALENDAR"} {
+	for _, line := range []string{"BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Slot//Booking//EN", "BEGIN:VEVENT", "UID:" + b.ID + "@slot", "DTSTAMP:" + format(b.Created), "DTSTART:" + format(b.Start), "DTEND:" + format(b.End), "SUMMARY:" + icsEscape(b.Title), "LOCATION:" + icsEscape(b.Location), "DESCRIPTION:" + icsEscape(b.Reason), "URL:" + a.cfg.PublicURL + "/manage/" + b.ManageToken, "END:VEVENT", "END:VCALENDAR"} {
 		fmt.Fprint(w, icsFold(line))
 	}
 }

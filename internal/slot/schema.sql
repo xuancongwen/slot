@@ -23,7 +23,17 @@ CREATE TABLE IF NOT EXISTS meeting_types (
  end_min INTEGER NOT NULL DEFAULT 1020, duration INTEGER NOT NULL DEFAULT 30,
  buffer INTEGER NOT NULL DEFAULT 0, notice INTEGER NOT NULL DEFAULT 120,
  horizon INTEGER NOT NULL DEFAULT 30, active INTEGER NOT NULL DEFAULT 1,
+ -- Hold each booking as a request until the host approves it; only then is the guest invited.
+ approval INTEGER NOT NULL DEFAULT 0,
+ all_locations INTEGER NOT NULL DEFAULT 1, guest_location INTEGER NOT NULL DEFAULT 1,
  UNIQUE(user_id,slug)
+);
+-- The locations a meeting type offers when all_locations is off. guest_location then
+-- says whether guests may also type their own; with all_locations on, they always may.
+CREATE TABLE IF NOT EXISTS meeting_type_locations (
+ meeting_type_id INTEGER NOT NULL REFERENCES meeting_types(id) ON DELETE CASCADE,
+ location_id INTEGER NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+ PRIMARY KEY(meeting_type_id,location_id)
 );
 CREATE TABLE IF NOT EXISTS sessions (
  token TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -52,23 +62,25 @@ CREATE TABLE IF NOT EXISTS bookings (
  guest_name TEXT NOT NULL, guest_email TEXT NOT NULL,
  start INTEGER NOT NULL, end INTEGER NOT NULL, block_start INTEGER NOT NULL, block_end INTEGER NOT NULL,
  title TEXT NOT NULL, location TEXT NOT NULL, meet INTEGER NOT NULL DEFAULT 0, timezone TEXT NOT NULL,
- guest_timezone TEXT NOT NULL DEFAULT '',
+ guest_timezone TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '',
  manage_token TEXT NOT NULL UNIQUE,
- status TEXT NOT NULL CHECK(status IN ('pending','confirmed','cancel_pending','cancelled','failed')),
+ status TEXT NOT NULL CHECK(status IN ('requested','pending','confirmed','cancel_pending','cancelled','declined','failed')),
  created INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
  next_attempt INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',
+ -- When a confirmed booking's Google event was last compared with Slot's copy.
+ checked INTEGER NOT NULL DEFAULT 0,
  CHECK(end > start), CHECK(block_end > block_start)
 );
 CREATE INDEX IF NOT EXISTS bookings_host_time ON bookings(user_id,block_start,block_end);
 CREATE INDEX IF NOT EXISTS bookings_retry ON bookings(status,next_attempt);
 CREATE TRIGGER IF NOT EXISTS no_overlapping_bookings BEFORE INSERT ON bookings
-WHEN NEW.status IN ('pending','confirmed','cancel_pending')
+WHEN NEW.status IN ('requested','pending','confirmed','cancel_pending')
 BEGIN
  SELECT RAISE(ABORT,'slot_overlap') WHERE EXISTS (
   SELECT 1 FROM bookings WHERE (user_id=NEW.user_id OR calendar_id IN (
    SELECT id FROM calendars WHERE google_id=(SELECT google_id FROM calendars WHERE id=NEW.calendar_id)
   ))
-  AND status IN ('pending','confirmed','cancel_pending')
+  AND status IN ('requested','pending','confirmed','cancel_pending')
   AND block_start < NEW.block_end AND block_end > NEW.block_start
  );
 END;

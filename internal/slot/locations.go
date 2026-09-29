@@ -84,19 +84,37 @@ func (a *App) deleteLocation(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, a.adminURL("/?notice=saved#profile"), http.StatusSeeOther)
 }
 
-// chosenLocation resolves the guest's pick. Their own text wins over the selected option,
-// so typing a location works without script to deselect the preselected default.
-func (a *App) chosenLocation(r *http.Request, u User) (text string, meet bool, err error) {
+// chosenLocation resolves the guest's pick among the locations t offers. Their own text,
+// where t allows it, wins over the selected option, so typing a location works without
+// script to deselect the preselected default.
+func (a *App) chosenLocation(r *http.Request, u User, t MeetingType) (text string, meet bool, err error) {
 	text = strings.TrimSpace(r.PostForm.Get("custom_location"))
 	if len(text) > 500 {
 		return "", false, errors.New("custom location too long")
 	}
+	if text != "" && !t.AllowsGuestLocation() {
+		return "", false, errors.New("meeting type takes no guest location")
+	}
 	choice := r.PostForm.Get("location")
-	if text != "" || choice == "" {
+	if text != "" {
 		return text, false, nil
 	}
+	if choice == "" {
+		if t.AllowsGuestLocation() {
+			return "", false, nil
+		}
+		// Nothing to choose from is fine; skipping an offered choice is not.
+		var offered bool
+		if e := a.db.QueryRowContext(r.Context(), "SELECT EXISTS(SELECT 1 FROM meeting_type_locations WHERE meeting_type_id=?)", t.ID).Scan(&offered); e != nil {
+			return "", false, fmt.Errorf("checking offered locations: %w", e)
+		}
+		if offered {
+			return "", false, errors.New("no location chosen")
+		}
+		return "", false, nil
+	}
 	var l Location
-	e := a.db.QueryRowContext(r.Context(), "SELECT kind,label,detail FROM locations WHERE id=? AND user_id=?", choice, u.ID).Scan(&l.Kind, &l.Label, &l.Detail)
+	e := a.db.QueryRowContext(r.Context(), "SELECT kind,label,detail FROM locations WHERE id=? AND user_id=? AND (? OR id IN (SELECT location_id FROM meeting_type_locations WHERE meeting_type_id=?))", choice, u.ID, t.AllLocations, t.ID).Scan(&l.Kind, &l.Label, &l.Detail)
 	if e != nil {
 		return "", false, fmt.Errorf("location %q: %w", choice, e)
 	}
