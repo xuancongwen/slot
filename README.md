@@ -1,6 +1,6 @@
 # Slot
 
-A small Google Calendar booking app for a home lab. One Go process, one SQLite database, two HTTP listeners. Server-rendered HTML, local CSS, and about 2 KB of optional JavaScript. No Node runtime, Redis, mail server, or external frontend assets.
+A small Google Calendar booking app for a home lab. One Go process, one SQLite database, two HTTP listeners. Server-rendered HTML, local CSS, and about 2 KB of optional JavaScript. No Node runtime, Redis, or mail server; the only external asset is an analytics script on the guest booking page.
 
 > **Status: not yet functional.** Slot is a work in progress and is not ready for use. The features below describe the intended first version, not a working release.
 

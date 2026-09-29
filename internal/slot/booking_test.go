@@ -307,6 +307,23 @@ func TestGuestCalendarPage(t *testing.T) {
 	if strings.Contains(body, "data-detect-guest-timezone") {
 		t.Error("explicit timezone should not be re-detected")
 	}
+	for _, tc := range []struct {
+		path      string
+		analytics bool
+	}{
+		{"/b/alex/chat", true},
+		{"/b/nobody", false},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			w := getRequest(h, tc.path)
+			if got := strings.Contains(w.Body.String(), "analytics.samwen.com/script.js"); got != tc.analytics {
+				t.Errorf("analytics script included = %v, want %v", got, tc.analytics)
+			}
+			if got := strings.Contains(w.Header().Get("Content-Security-Policy"), "connect-src https://analytics.samwen.com"); got != tc.analytics {
+				t.Errorf("security policy allows analytics = %v, want %v", got, tc.analytics)
+			}
+		})
+	}
 	if body = get("/b/alex/chat"); !strings.Contains(body, `data-detect-guest-timezone="UTC"`) {
 		t.Error("page without tz should ask the browser for its zone")
 	}
