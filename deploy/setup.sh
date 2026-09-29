@@ -61,6 +61,12 @@ REGISTRATION_CODE=
 # URL name of the only host, e.g. sam: their page is then the public root, and
 # registration accepts that name once. Requires REGISTRATION_CODE.
 SINGLE_HOST_URL_NAME=
+
+# Optional page view tracker on booking pages, e.g. Umami:
+#   ANALYTICS_SCRIPT_URL=https://your-umami-host/script.js
+#   ANALYTICS_SCRIPT_ATTRS=data-website-id=your-website-id
+ANALYTICS_SCRIPT_URL=
+ANALYTICS_SCRIPT_ATTRS=
 EOF
 fi
 

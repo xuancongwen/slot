@@ -126,6 +126,8 @@ References: [Google web-server OAuth](https://developers.google.com/identity/pro
 | `REGISTRATION_OPEN` | `true` | Set to `false` to disable host registration. Existing users can still sign in. |
 | `REGISTRATION_CODE` | unset | Optional shared code required to register a host. Required with `SINGLE_HOST_URL_NAME`. |
 | `SINGLE_HOST_URL_NAME` | unset | URL name of the only host, e.g. `sam`. Their booking page is served at the public root, and registration accepts only that name, once. |
+| `ANALYTICS_SCRIPT_URL` | unset | Optional page view tracker loaded on booking pages, e.g. a self-hosted Umami or Plausible `script.js`. Its origin is added to the booking pages' `script-src` and `connect-src` security policy. |
+| `ANALYTICS_SCRIPT_ATTRS` | unset | Space-separated `data-*` attributes for that script tag, e.g. `data-website-id=abc123` (Umami) or `data-domain=book.example.com` (Plausible). |
 | `PUBLIC_PORT`, `ADMIN_PORT` | `8080`, `8081` | Compose host-port mappings only; `ADMIN_PORT` matters only for a separate admin. Update origins and Google redirects if changed. |
 
 The standalone binary does **not** read `.env`. Export variables in the shell or use your service manager's environment file. Compose reads `.env` for the interpolation shown in `compose.yaml`.
@@ -169,7 +171,7 @@ The data directory contains the SQLite database, WAL/SHM files while running, an
 
 For the simplest consistent backup, stop Slot, copy/archive the entire data directory or named volume, then restart. To restore, stop the app and restore that complete backup with permissions suitable for the service user (container UID 65532). For online backups, use SQLite's backup API or a WAL-aware backup tool; copying only a live `.db` file is insufficient.
 
-Booking names/emails and host profile data are stored in SQLite as plaintext; only Google tokens are encrypted. Secure the data directory and backups accordingly. No analytics or third-party frontend requests are included.
+Booking names/emails and host profile data are stored in SQLite as plaintext; only Google tokens are encrypted. Secure the data directory and backups accordingly. No analytics or third-party frontend requests are made unless you set `ANALYTICS_SCRIPT_URL`.
 
 ## Development and verification
 
