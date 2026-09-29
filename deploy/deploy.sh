@@ -1,18 +1,27 @@
 #!/usr/bin/env bash
 # Builds Slot, checks it, and deploys it to an LXC prepared by setup.sh.
 #
-#   deploy/deploy.sh root@slot.lan      (or set SLOT_HOST)
+#   deploy/deploy.sh root@slot.lan
+#
+# Without an argument, the target is SLOT_HOST from the environment, then from
+# deploy/.env (see deploy/.env.example), which git ignores.
 #
 # The database is backed up before each restart, and if the new build does not come
 # up healthy, the previous binary is restored.
 set -euo pipefail
 
+cd "$(dirname "$0")/.."
+
 target=${1:-${SLOT_HOST:-}}
+# Read only the one setting, rather than sourcing the file and running whatever is in it.
+if [[ -z $target && -f deploy/.env ]]; then
+  target=$(sed -n 's/^SLOT_HOST=//p' deploy/.env | tail -n 1)
+  target=${target//[\"\']/}
+fi
 if [[ -z $target ]]; then
-  echo "Usage: $0 root@host (or set SLOT_HOST)" >&2
+  echo "Usage: $0 root@host (or set SLOT_HOST, in the environment or deploy/.env)" >&2
   exit 2
 fi
-cd "$(dirname "$0")/.."
 
 # One SSH connection for every step, so a password or key prompt happens once.
 control="${TMPDIR:-/tmp}/slot-deploy-$$"

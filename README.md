@@ -73,6 +73,8 @@ ssh root@slot.lan editor /etc/slot/slot.env   # origin, Google OAuth client, opt
 deploy/deploy.sh root@slot.lan
 ```
 
+To skip the argument, copy `deploy/.env.example` to `deploy/.env` and set `SLOT_HOST` there; git ignores it. A command-line target, or `SLOT_HOST` in the environment, takes precedence.
+
 `deploy.sh` runs `make check`, cross-compiles for the container's architecture (amd64 or arm64), backs up the database to `/var/backups/slot` (the last 10 are kept), swaps the binary, and waits for `/healthz`. If the new build does not come up, it restores the previous binary. Configuration lives in `/etc/slot/slot.env`; after editing it, run `systemctl restart slot`. Logs: `journalctl -u slot`.
 
 ## Single-host mode
