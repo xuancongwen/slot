@@ -3,6 +3,7 @@ package slot
 import (
 	"fmt"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -142,5 +143,18 @@ func TestBlankSlugComesFromName(t *testing.T) {
 	rows.Close()
 	if fmt.Sprint(slugs) != "[chat chat-2 chat-3]" {
 		t.Fatalf("slugs %v", slugs)
+	}
+}
+
+func TestDashboardTypeTitleOpensEditor(t *testing.T) {
+	a, _ := testApp(t)
+	u := seedHost(t, a, "alex")
+	mt := chatType(t, a, u)
+	body := getRequest(a.adminHandler(), "/", sessionFor(t, a, u)).Body.String()
+	if !strings.Contains(body, fmt.Sprintf(`<a class="type-name" href="/admin/types/%d">Chat</a>`, mt.ID)) {
+		t.Fatalf("title does not link to the editor: %s", body)
+	}
+	if strings.Contains(body, ">Edit</a>") {
+		t.Fatal("separate Edit link still shown")
 	}
 }

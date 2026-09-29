@@ -415,6 +415,12 @@ legend {
   color: var(--muted);
 }
 
+.type-row .type-name {
+  display: inline;
+  font-size: inherit;
+  margin-top: 0;
+}
+
 .type-row > .reorder {
   flex: 0 0 28px;
   display: flex;
