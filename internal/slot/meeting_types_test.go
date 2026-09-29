@@ -13,7 +13,7 @@ func TestMeetingTypeEditingAndIsolation(t *testing.T) {
 	cookie := sessionFor(t, a, u)
 	h := a.adminHandler()
 	form := func(slug, tz string) url.Values {
-		return url.Values{"name": {"Deep dive"}, "slug": {slug}, "timezone": {tz}, "duration": {"60"}, "days": {"1", "2"}, "start": {"09:00"}, "end": {"17:00"}, "buffer": {"0"}, "notice": {"0"}, "horizon": {"30"}, "active": {"on"}}
+		return url.Values{"name": {"Deep dive"}, "slug": {slug}, "timezone": {tz}, "duration": {"60"}, "days": {"1", "2"}, "start": {"09:00"}, "end": {"17:00"}, "buffer": {"0"}, "notice": {"0"}, "horizon": {"30"}, "active": {"on"}, "approval": {"on"}}
 	}
 	for _, tc := range []struct {
 		name, path string
@@ -35,9 +35,10 @@ func TestMeetingTypeEditingAndIsolation(t *testing.T) {
 	}
 	var zone string
 	var days string
-	a.db.QueryRow("SELECT timezone,days FROM meeting_types WHERE user_id=? AND slug='deep'", u.ID).Scan(&zone, &days)
-	if zone != "Asia/Singapore" || days != "12" {
-		t.Fatalf("saved %q %q", zone, days)
+	var approval bool
+	a.db.QueryRow("SELECT timezone,days,approval FROM meeting_types WHERE user_id=? AND slug='deep'", u.ID).Scan(&zone, &days, &approval)
+	if zone != "Asia/Singapore" || days != "12" || !approval {
+		t.Fatalf("saved %q %q %v", zone, days, approval)
 	}
 	var n int
 	a.db.QueryRow("SELECT count(*) FROM meeting_types WHERE id=? AND slug='chat'", theirs.ID).Scan(&n)

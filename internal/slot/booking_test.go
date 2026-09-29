@@ -3,6 +3,7 @@ package slot
 import (
 	"context"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -100,6 +101,114 @@ func TestPublicBookingFlow(t *testing.T) {
 	a.reconcile(context.Background())
 	if f.deleteCalls != 1 {
 		t.Fatal("not cancelled upstream")
+	}
+}
+
+// requestChat books alex's chat type, which requires approval, and returns the booking.
+func requestChat(t *testing.T, a *App, u User, start time.Time) Booking {
+	t.Helper()
+	if _, e := a.db.Exec("UPDATE meeting_types SET approval=1 WHERE user_id=?", u.ID); e != nil {
+		t.Fatal(e)
+	}
+	form := url.Values{"ticket": {a.ticket(u.ID, chatType(t, a, u), start.Unix())}, "name": {"Guest"}, "email": {"guest@example.com"}}
+	w := formRequest(a.publicHandler(), "/b/"+u.Slug+"/chat", form, false)
+	if w.Code != 303 {
+		t.Fatalf("request: %d %s", w.Code, w.Body)
+	}
+	b, e := a.getBooking(context.Background(), strings.TrimPrefix(w.Header().Get("Location"), "/manage/"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	return b
+}
+
+func TestApprovalHoldsTimeWithoutInviting(t *testing.T) {
+	a, f := testApp(t)
+	u := seedHost(t, a, "alex")
+	b := requestChat(t, a, u, tomorrow())
+	a.reconcile(context.Background())
+	if b.Status != "requested" || f.insertCalls != 0 {
+		t.Fatalf("status %s, %d inserts", b.Status, f.insertCalls)
+	}
+	if e := a.reserve(context.Background(), bookingFor(u, tomorrow())); e == nil {
+		t.Fatal("request did not hold its time")
+	}
+	w := getRequest(a.publicHandler(), "/manage/"+b.ManageToken)
+	if !strings.Contains(w.Body.String(), "Waiting for<br>approval") || !strings.Contains(w.Body.String(), "Withdraw request") {
+		t.Fatalf("manage page: %s", w.Body)
+	}
+	w = getRequest(a.publicHandler(), "/b/alex/chat?tz=UTC&date="+tomorrow().Format("2006-01-02")+"&start="+strconv.FormatInt(tomorrow().Add(time.Hour).Unix(), 10))
+	if !strings.Contains(w.Body.String(), "Request this time") {
+		t.Fatal("booking form does not say the time is only requested")
+	}
+}
+
+func TestHostDecidesRequest(t *testing.T) {
+	tests := []struct {
+		name        string
+		action      string
+		wantStatus  string
+		wantInserts int
+		wantPage    string
+	}{
+		{"approve", "approve", "confirmed", 1, "Booking<br>confirmed"},
+		{"decline", "decline", "declined", 0, "Request<br>declined"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a, f := testApp(t)
+			u := seedHost(t, a, "alex")
+			b := requestChat(t, a, u, tomorrow())
+			h := a.adminHandler()
+			if w := formRequest(h, "/bookings/"+b.ID+"/"+tt.action, url.Values{}, true, sessionFor(t, a, u)); w.Code != 303 {
+				t.Fatalf("%s: %d %s", tt.action, w.Code, w.Body)
+			}
+			if w := formRequest(h, "/bookings/"+b.ID+"/"+tt.action, url.Values{}, true, sessionFor(t, a, u)); w.Code != 409 {
+				t.Fatalf("repeated %s: %d", tt.action, w.Code)
+			}
+			a.reconcile(context.Background())
+			got, _ := a.getBooking(context.Background(), b.ManageToken)
+			if got.Status != tt.wantStatus || f.insertCalls != tt.wantInserts {
+				t.Fatalf("status %s, %d inserts", got.Status, f.insertCalls)
+			}
+			if w := getRequest(a.publicHandler(), "/manage/"+b.ManageToken); !strings.Contains(w.Body.String(), tt.wantPage) {
+				t.Fatalf("manage page: %s", w.Body)
+			}
+		})
+	}
+}
+
+func TestDecisionLimits(t *testing.T) {
+	a, _ := testApp(t)
+	u := seedHost(t, a, "alex")
+	other := seedHost(t, a, "sam")
+	b := requestChat(t, a, u, tomorrow())
+	h := a.adminHandler()
+	if w := formRequest(h, "/bookings/"+b.ID+"/approve", url.Values{}, true, sessionFor(t, a, other)); w.Code != 409 {
+		t.Fatalf("another host approved: %d", w.Code)
+	}
+	if _, e := a.db.Exec("UPDATE bookings SET start=?,end=?,block_start=?,block_end=? WHERE id=?", time.Now().Add(-time.Hour).Unix(), time.Now().Unix(), time.Now().Add(-time.Hour).Unix(), time.Now().Unix(), b.ID); e != nil {
+		t.Fatal(e)
+	}
+	if w := formRequest(h, "/bookings/"+b.ID+"/approve", url.Values{}, true, sessionFor(t, a, u)); w.Code != 409 {
+		t.Fatalf("past request approved: %d", w.Code)
+	}
+}
+
+func TestGuestWithdrawsRequest(t *testing.T) {
+	a, f := testApp(t)
+	u := seedHost(t, a, "alex")
+	b := requestChat(t, a, u, tomorrow())
+	if w := formRequest(a.publicHandler(), "/manage/"+b.ManageToken+"/cancel", url.Values{}, false); w.Code != 303 {
+		t.Fatal(w.Code)
+	}
+	a.reconcile(context.Background())
+	got, _ := a.getBooking(context.Background(), b.ManageToken)
+	if got.Status != "cancelled" || f.deleteCalls != 0 {
+		t.Fatalf("status %s, %d deletes", got.Status, f.deleteCalls)
+	}
+	if e := a.reserve(context.Background(), bookingFor(u, tomorrow())); e != nil {
+		t.Fatal("withdrawn time not reusable", e)
 	}
 }
 

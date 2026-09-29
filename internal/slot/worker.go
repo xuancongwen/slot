@@ -130,6 +130,7 @@ func (a *App) checkBooking(ctx context.Context, id string) {
 func (a *App) cancelBooking(ctx context.Context, b Booking) error {
 	a.syncMu.Lock()
 	defer a.syncMu.Unlock()
-	_, e := a.db.ExecContext(ctx, "UPDATE bookings SET status='cancel_pending',next_attempt=0 WHERE id=? AND status IN ('pending','confirmed')", b.ID)
+	// A request has no Google event yet, so it is cancelled on the spot.
+	_, e := a.db.ExecContext(ctx, "UPDATE bookings SET status=CASE status WHEN 'requested' THEN 'cancelled' ELSE 'cancel_pending' END,next_attempt=0 WHERE id=? AND status IN ('requested','pending','confirmed')", b.ID)
 	return e
 }

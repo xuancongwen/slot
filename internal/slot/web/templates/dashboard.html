@@ -183,6 +183,16 @@
             <td><span class="pill">{{.Status}}</span>{{if .LastError}}<small class="sync-error">{{.LastError}}</small>{{end}}</td>
             <td>
               <div class="actions">
+                {{if eq .Status "requested"}}
+                <form method="post" action="{{admin "/bookings/"}}{{.ID}}/approve">
+                  <input type="hidden" name="csrf" value="{{$.CSRF}}">
+                  <button class="text-button">Approve</button>
+                </form>
+                <form method="post" action="{{admin "/bookings/"}}{{.ID}}/decline" data-confirm="Decline this request? The time opens up again.">
+                  <input type="hidden" name="csrf" value="{{$.CSRF}}">
+                  <button class="text-button danger">Decline</button>
+                </form>
+                {{end}}
                 {{if or (eq .Status "pending") (eq .Status "cancel_pending")}}
                 <form method="post" action="{{admin "/bookings/"}}{{.ID}}/retry">
                   <input type="hidden" name="csrf" value="{{$.CSRF}}">

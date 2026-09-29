@@ -143,7 +143,7 @@ func mustLoad(t *testing.T, tz string) *time.Location {
 }
 
 func bookingFor(u User, start time.Time) Booking {
-	return Booking{ID: randomHex(16), UserID: u.ID, CalendarID: u.WriteCalendar.Int64, GuestName: "Guest", GuestEmail: "guest@example.com", Start: start.Unix(), End: start.Add(30 * time.Minute).Unix(), BlockStart: start.Unix(), BlockEnd: start.Add(30 * time.Minute).Unix(), Title: "Guest / Alex", Timezone: "UTC", ManageToken: randomHex(32), Created: time.Now().Unix()}
+	return Booking{ID: randomHex(16), UserID: u.ID, CalendarID: u.WriteCalendar.Int64, GuestName: "Guest", GuestEmail: "guest@example.com", Start: start.Unix(), End: start.Add(30 * time.Minute).Unix(), BlockStart: start.Unix(), BlockEnd: start.Add(30 * time.Minute).Unix(), Title: "Guest / Alex", Timezone: "UTC", ManageToken: randomHex(32), Status: "pending", Created: time.Now().Unix()}
 }
 
 func tomorrow() time.Time {
