@@ -534,6 +534,15 @@ legend {
   font-size: 12px;
 }
 
+/* Two date inputs leave no room for the button in the narrow sidebar. */
+.range-form {
+  flex-wrap: wrap;
+}
+
+.range-form button {
+  flex-basis: 100%;
+}
+
 .alert {
   display: flex;
   align-items: flex-start;

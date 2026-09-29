@@ -77,7 +77,7 @@ func (a *App) availability(ctx context.Context, u User, t MeetingType, from, to 
 	for d := first; d.Before(to); d = d.AddDate(0, 0, 1) {
 		days = append(days, d)
 	}
-	blockedDays, e := queryAll(ctx, a.db, scanString, "SELECT day FROM blocks WHERE user_id=? AND day BETWEEN ? AND ?", u.ID, days[0].Format(dateLayout), days[len(days)-1].Format(dateLayout))
+	daysOff, e := queryAll(ctx, a.db, scanDayOff, "SELECT id,first_day,last_day FROM blocks WHERE user_id=? AND first_day<=? AND last_day>=?", u.ID, days[len(days)-1].Format(dateLayout), days[0].Format(dateLayout))
 	if e != nil {
 		return nil, e
 	}
@@ -116,7 +116,7 @@ func (a *App) availability(ctx context.Context, u User, t MeetingType, from, to 
 	busy = append(busy, reserved...)
 	var out []Slot
 	for _, d := range days {
-		if slices.Contains(blockedDays, d.Format(dateLayout)) {
+		if slices.ContainsFunc(daysOff, func(off DayOff) bool { return off.Covers(d.Format(dateLayout)) }) {
 			continue
 		}
 		for _, s := range generateSlots(t, d, now, busy) {

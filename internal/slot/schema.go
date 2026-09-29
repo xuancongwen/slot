@@ -8,7 +8,7 @@ import (
 // Bump schemaVersion whenever schema.sql changes shape, and add the step that brings
 // the previous version's database up to it. Databases older than the first step
 // predate migrations and must start fresh.
-const schemaVersion = 9
+const schemaVersion = 10
 
 func migrate(db *sql.DB) error {
 	steps := map[int]string{
@@ -42,6 +42,14 @@ CREATE TABLE meeting_type_locations (
  location_id INTEGER NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
  PRIMARY KEY(meeting_type_id,location_id)
 );`,
+		// Each day off becomes a one-day range.
+		9: `CREATE TABLE blocks_new (
+ id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
+ first_day TEXT NOT NULL, last_day TEXT NOT NULL, CHECK(last_day >= first_day)
+);
+INSERT INTO blocks_new(id,user_id,first_day,last_day) SELECT id,user_id,day,day FROM blocks;
+DROP TABLE blocks;
+ALTER TABLE blocks_new RENAME TO blocks;`,
 	}
 	var version, tables int
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {

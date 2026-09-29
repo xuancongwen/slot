@@ -151,18 +151,19 @@
 
       <section class="card">
         <h2>Days off</h2>
-        <p class="hint">Block an entire date. Each meeting type reads the date in its own timezone. Existing bookings stay in place.</p>
-        <form method="post" action="{{admin "/blocks"}}" class="inline-form">
+        <p class="hint">Block whole dates, such as a trip. Leave the end date empty for a single day. Each meeting type reads dates in its own timezone. Existing bookings stay in place.</p>
+        <form method="post" action="{{admin "/blocks"}}" class="inline-form range-form">
           <input type="hidden" name="csrf" value="{{.CSRF}}">
-          <label class="grow">Date<input type="date" name="day" required></label>
-          <button class="secondary">Block date</button>
+          <label class="grow">From<input type="date" name="from" required></label>
+          <label class="grow">To<input type="date" name="to"></label>
+          <button class="secondary">Block dates</button>
         </form>
-        {{range .Blocks}}
+        {{range .DaysOff}}
         <div class="account-row">
-          <span>{{.}}</span>
+          <span>{{.First}}{{if ne .First .Last}} – {{.Last}}{{end}}</span>
           <form method="post" action="{{admin "/blocks/delete"}}">
             <input type="hidden" name="csrf" value="{{$.CSRF}}">
-            <input type="hidden" name="day" value="{{.}}">
+            <input type="hidden" name="id" value="{{.ID}}">
             <button class="text-button">Remove</button>
           </form>
         </div>

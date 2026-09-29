@@ -46,7 +46,7 @@ func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	p.Blocks, e = queryAll(r.Context(), a.db, scanString, "SELECT day FROM blocks WHERE user_id=? ORDER BY day", u.ID)
+	p.DaysOff, e = queryAll(r.Context(), a.db, scanDayOff, "SELECT id,first_day,last_day FROM blocks WHERE user_id=? ORDER BY first_day,last_day", u.ID)
 	if e != nil {
 		a.internal(w, r, e)
 		return
@@ -109,13 +109,23 @@ func (a *App) saveCalendarSettings(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, a.adminURL("/?notice=saved"), http.StatusSeeOther)
 }
 
-func (a *App) blockDay(w http.ResponseWriter, r *http.Request) {
-	day := r.PostForm.Get("day")
-	if _, e := time.Parse(dateLayout, day); e != nil {
-		a.fail(w, r, http.StatusBadRequest, "Choose a valid date.")
+// blockDays adds days off from one date through another; without an end date, just the one day.
+func (a *App) blockDays(w http.ResponseWriter, r *http.Request) {
+	first, last := r.PostForm.Get("from"), r.PostForm.Get("to")
+	if last == "" {
+		last = first
+	}
+	from, e1 := time.Parse(dateLayout, first)
+	to, e2 := time.Parse(dateLayout, last)
+	if e1 != nil || e2 != nil {
+		a.fail(w, r, http.StatusBadRequest, "Choose valid dates.")
 		return
 	}
-	_, e := a.db.ExecContext(r.Context(), "INSERT OR IGNORE INTO blocks(user_id,day) VALUES(?,?)", currentUser(r).ID, day)
+	if to.Before(from) || to.After(from.AddDate(1, 0, 0)) {
+		a.fail(w, r, http.StatusBadRequest, "The end date must be on or after the start date, and within a year of it.")
+		return
+	}
+	_, e := a.db.ExecContext(r.Context(), "INSERT INTO blocks(user_id,first_day,last_day) VALUES(?,?,?)", currentUser(r).ID, first, last)
 	if e != nil {
 		a.internal(w, r, e)
 		return
@@ -123,8 +133,8 @@ func (a *App) blockDay(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, a.adminURL("/?notice=saved"), http.StatusSeeOther)
 }
 
-func (a *App) unblockDay(w http.ResponseWriter, r *http.Request) {
-	_, e := a.db.ExecContext(r.Context(), "DELETE FROM blocks WHERE user_id=? AND day=?", currentUser(r).ID, r.PostForm.Get("day"))
+func (a *App) unblockDays(w http.ResponseWriter, r *http.Request) {
+	_, e := a.db.ExecContext(r.Context(), "DELETE FROM blocks WHERE user_id=? AND id=?", currentUser(r).ID, r.PostForm.Get("id"))
 	if e != nil {
 		a.internal(w, r, e)
 		return

@@ -52,9 +52,10 @@ CREATE TABLE IF NOT EXISTS oauth_states (
  state TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
  session TEXT NOT NULL, verifier TEXT NOT NULL, expires INTEGER NOT NULL
 );
+-- A host's days off: every date from first_day through last_day, as YYYY-MM-DD.
 CREATE TABLE IF NOT EXISTS blocks (
  id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
- day TEXT NOT NULL, UNIQUE(user_id,day)
+ first_day TEXT NOT NULL, last_day TEXT NOT NULL, CHECK(last_day >= first_day)
 );
 CREATE TABLE IF NOT EXISTS bookings (
  id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
