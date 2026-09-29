@@ -40,6 +40,20 @@
         </label>
       </div>
 
+      <h2>Where</h2>
+      <fieldset class="location-mode">
+        <legend>Places guests can choose</legend>
+        <label class="check-row"><input type="radio" name="location_mode" value="all" {{if .MeetingType.AllLocations}}checked{{end}}><span>All my locations<small>Including ones you add later, or somewhere the guest suggests</small></span></label>
+        <label class="check-row"><input type="radio" name="location_mode" value="some" {{if not .MeetingType.AllLocations}}checked{{end}}><span>Only the ones I pick</span></label>
+        <div class="location-picks">
+          {{range .Locations}}
+          <label class="check-row"><input type="checkbox" name="locations" value="{{.ID}}" {{if .Offered}}checked{{end}}><span>{{.Label}}<small>{{if eq .Kind "meet"}}New link for each booking{{else}}{{.Detail}}{{end}}</small></span></label>
+          {{end}}
+          <label class="check-row"><input type="checkbox" name="guest_location" {{if .MeetingType.GuestLocation}}checked{{end}}><span>Somewhere the guest suggests</span></label>
+          <p class="hint">Manage your locations under <a href="{{admin "/#profile"}}">Profile</a>.</p>
+        </div>
+      </fieldset>
+
       <h2>Limits</h2>
       <div class="form-grid">
         <label>Buffer on each side <span class="optional">minutes</span>
@@ -55,12 +69,16 @@
       <label class="check-row"><input type="checkbox" name="active" {{if .MeetingType.Active}}checked{{end}}>Guests can book this type</label>
       <button>Save meeting type</button>
     </form>
-    {{if .MeetingType.ID}}
-    <form method="post" action="{{admin "/types/"}}{{.MeetingType.ID}}/delete" data-confirm="Delete this meeting type? Existing bookings stay in place.">
-      <input type="hidden" name="csrf" value="{{.CSRF}}">
-      <button class="text-button danger">Delete meeting type</button>
-    </form>
-    {{end}}
   </section>
+  {{if .MeetingType.ID}}
+  <section class="card danger-zone">
+    <h2>Delete meeting type</h2>
+    <p>Guests can no longer book it and its link stops working. Existing bookings stay in place. This cannot be undone.</p>
+    <form method="post" action="{{admin "/types/"}}{{.MeetingType.ID}}/delete" data-confirm="Delete {{.MeetingType.Name}}? Existing bookings stay in place.">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button class="danger-button">Delete {{.MeetingType.Name}}</button>
+    </form>
+  </section>
+  {{end}}
 </main>
 {{template "foot" .}}{{end}}

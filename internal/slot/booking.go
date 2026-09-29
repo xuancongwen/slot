@@ -185,10 +185,12 @@ func (a *App) showBooking(w http.ResponseWriter, r *http.Request, u User, t Meet
 		if !found {
 			p.Error = "That time is no longer available. Please choose another."
 		}
-		if p.Locations, e = a.locations(r.Context(), u); e != nil {
+		ls, e := a.typeLocations(r.Context(), u, t)
+		if e != nil {
 			a.internal(w, r, e)
 			return
 		}
+		p.Locations = offeredLocations(ls)
 	}
 	a.render(w, r, "booking", p, http.StatusOK)
 }
@@ -281,7 +283,7 @@ func (a *App) book(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, http.StatusBadRequest, "Enter your name and a valid email address.")
 		return
 	}
-	location, meet, e := a.chosenLocation(r, u)
+	location, meet, e := a.chosenLocation(r, u, t)
 	if e != nil {
 		a.fail(w, r, http.StatusBadRequest, "Choose where to meet, or enter a location up to 500 characters.")
 		return

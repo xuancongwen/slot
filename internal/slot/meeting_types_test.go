@@ -46,6 +46,45 @@ func TestMeetingTypeEditingAndIsolation(t *testing.T) {
 	}
 }
 
+func TestMeetingTypeLocations(t *testing.T) {
+	a, _ := testApp(t)
+	u := seedHost(t, a, "one")
+	theirs := locationID(t, a, seedHost(t, a, "two"), "Zoom")
+	cookie := sessionFor(t, a, u)
+	zoom := locationID(t, a, u, "Zoom")
+	for _, tc := range []struct {
+		name      string
+		form      url.Values
+		wantCode  int
+		wantSaved string
+	}{
+		{"all locations", url.Values{"location_mode": {"all"}, "guest_location": {"on"}}, 303, "all=true guest=true picks=[]"},
+		{"only Zoom", url.Values{"location_mode": {"some"}, "locations": {zoom}}, 303, "all=false guest=false picks=[" + zoom + "]"},
+		{"only the guest's", url.Values{"location_mode": {"some"}, "guest_location": {"on"}}, 303, "all=false guest=true picks=[]"},
+		{"nothing offered", url.Values{"location_mode": {"some"}}, 400, ""},
+		{"another host's location", url.Values{"location_mode": {"some"}, "locations": {zoom, theirs}}, 303, "all=false guest=false picks=[" + zoom + "]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			form := url.Values{"name": {"Chat"}, "slug": {"chat"}, "timezone": {"UTC"}, "duration": {"30"}, "days": {"1"}, "start": {"09:00"}, "end": {"17:00"}, "buffer": {"0"}, "notice": {"0"}, "horizon": {"30"}}
+			for k, v := range tc.form {
+				form[k] = v
+			}
+			mt := chatType(t, a, u)
+			if w := formRequest(a.adminHandler(), fmt.Sprintf("/types/%d", mt.ID), form, true, cookie); w.Code != tc.wantCode {
+				t.Fatalf("status %d, want %d: %s", w.Code, tc.wantCode, w.Body)
+			}
+			if tc.wantSaved == "" {
+				return
+			}
+			mt = chatType(t, a, u)
+			picks, _ := queryAll(t.Context(), a.db, scanString, "SELECT location_id FROM meeting_type_locations WHERE meeting_type_id=?", mt.ID)
+			if got := fmt.Sprintf("all=%v guest=%v picks=%v", mt.AllLocations, mt.GuestLocation, picks); got != tc.wantSaved {
+				t.Fatalf("saved %s, want %s", got, tc.wantSaved)
+			}
+		})
+	}
+}
+
 func TestBlankSlugComesFromName(t *testing.T) {
 	a, _ := testApp(t)
 	u := seedHost(t, a, "alex")

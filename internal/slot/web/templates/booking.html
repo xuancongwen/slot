@@ -41,15 +41,19 @@
       <label>Email address
         <input name="email" type="email" autocomplete="email" maxlength="254" required placeholder="you@example.com">
       </label>
+      {{if or .Locations .MeetingType.AllowsGuestLocation}}
       <fieldset>
         <legend>Where to meet</legend>
         {{range .Locations}}
-        <label class="check-row"><input type="radio" name="location" value="{{.ID}}" {{if .Default}}checked{{end}}><span>{{.Label}}<small>{{if eq .Kind "meet"}}Link sent with the invitation{{else}}{{.Detail}}{{end}}</small></span></label>
+        <label class="check-row"><input type="radio" name="location" value="{{.ID}}" {{if .Default}}checked{{end}}{{if not $.MeetingType.AllowsGuestLocation}} required{{end}}><span>{{.Label}}<small>{{if eq .Kind "meet"}}Link sent with the invitation{{else}}{{.Detail}}{{end}}</small></span></label>
         {{end}}
+        {{if .MeetingType.AllowsGuestLocation}}
         <label>{{if .Locations}}Or somewhere else{{else}}Location{{end}} <span class="optional">optional</span>
           <input name="custom_location" maxlength="500" placeholder="Phone number, address, or link">
         </label>
+        {{end}}
       </fieldset>
+      {{end}}
       <div class="honeypot" aria-hidden="true">
         <label>Leave this empty<input name="website" tabindex="-1" autocomplete="off"></label>
       </div>

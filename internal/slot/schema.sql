@@ -23,7 +23,15 @@ CREATE TABLE IF NOT EXISTS meeting_types (
  end_min INTEGER NOT NULL DEFAULT 1020, duration INTEGER NOT NULL DEFAULT 30,
  buffer INTEGER NOT NULL DEFAULT 0, notice INTEGER NOT NULL DEFAULT 120,
  horizon INTEGER NOT NULL DEFAULT 30, active INTEGER NOT NULL DEFAULT 1,
+ all_locations INTEGER NOT NULL DEFAULT 1, guest_location INTEGER NOT NULL DEFAULT 1,
  UNIQUE(user_id,slug)
+);
+-- The locations a meeting type offers when all_locations is off. guest_location then
+-- says whether guests may also type their own; with all_locations on, they always may.
+CREATE TABLE IF NOT EXISTS meeting_type_locations (
+ meeting_type_id INTEGER NOT NULL REFERENCES meeting_types(id) ON DELETE CASCADE,
+ location_id INTEGER NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+ PRIMARY KEY(meeting_type_id,location_id)
 );
 CREATE TABLE IF NOT EXISTS sessions (
  token TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
