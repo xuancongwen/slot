@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +21,16 @@ type CalendarProvider interface {
 	// Insert returns the Google Meet link when the booking asked for one.
 	Insert(context.Context, Calendar, Booking) (string, error)
 	Delete(context.Context, Calendar, Booking) error
+	Check(context.Context, Calendar, Booking) (EventState, error)
+}
+
+// EventState is what Google now holds for a confirmed booking's event.
+type EventState struct {
+	// Gone means the event was deleted in Google Calendar.
+	Gone     bool
+	Declined bool
+	// Start and End are zero when the event has no time of day, such as an all-day event.
+	Start, End int64
 }
 
 type Google struct {
@@ -258,4 +269,41 @@ func (g *Google) Delete(ctx context.Context, c Calendar, b Booking) error {
 		return nil
 	}
 	return e
+}
+
+// Check reads the booking's event back, so edits made in Google Calendar reach Slot.
+func (g *Google) Check(ctx context.Context, c Calendar, b Booking) (EventState, error) {
+	token, e := g.token(ctx, c.AccountID)
+	if e != nil {
+		return EventState{}, e
+	}
+	path := "/calendars/" + url.PathEscape(c.GoogleID)
+	var event struct {
+		Status     string
+		Start, End struct{ DateTime time.Time }
+		Attendees  []struct{ Email, ResponseStatus string }
+	}
+	e = g.request(ctx, token, "GET", path+"/events/"+b.ID, nil, &event)
+	var api *APIError
+	if errors.As(e, &api) && (api.Status == 404 || api.Status == 410) {
+		// A calendar that is gone or no longer shared also answers 404. Its events may
+		// still exist, so only a reachable calendar proves the event was deleted.
+		if err := g.request(ctx, token, "GET", path, nil, nil); err != nil {
+			return EventState{}, fmt.Errorf("checking destination calendar: %w", err)
+		}
+		return EventState{Gone: true}, nil
+	}
+	if e != nil {
+		return EventState{}, e
+	}
+	s := EventState{Gone: event.Status == "cancelled"}
+	if !event.Start.DateTime.IsZero() && !event.End.DateTime.IsZero() {
+		s.Start, s.End = event.Start.DateTime.Unix(), event.End.DateTime.Unix()
+	}
+	for _, a := range event.Attendees {
+		if strings.EqualFold(a.Email, b.GuestEmail) && a.ResponseStatus == "declined" {
+			s.Declined = true
+		}
+	}
+	return s, nil
 }

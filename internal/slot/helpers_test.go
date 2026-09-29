@@ -16,8 +16,12 @@ type fakeCalendar struct {
 	mu                            sync.Mutex
 	busy                          []Span
 	busyErr, insertErr, deleteErr error
+	checkErr                      error
 	insertCalls, deleteCalls      int
+	checkCalls                    int
 	events                        map[string]bool
+	// remote is what Check reports for an event that still exists.
+	remote EventState
 }
 
 func (f *fakeCalendar) Busy(context.Context, []Calendar, time.Time, time.Time) ([]Span, error) {
@@ -48,6 +52,19 @@ func (f *fakeCalendar) Delete(_ context.Context, _ Calendar, b Booking) error {
 	}
 	delete(f.events, b.ID)
 	return nil
+}
+
+func (f *fakeCalendar) Check(_ context.Context, _ Calendar, b Booking) (EventState, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.checkCalls++
+	if f.checkErr != nil {
+		return EventState{}, f.checkErr
+	}
+	if !f.events[b.ID] {
+		return EventState{Gone: true}, nil
+	}
+	return f.remote, nil
 }
 
 func testApp(t *testing.T) (*App, *fakeCalendar) {
