@@ -139,6 +139,26 @@ func (a *App) saveMeetingType(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, a.adminURL("/?notice=saved"), http.StatusSeeOther)
 }
 
+// setMeetingTypeActive turns a meeting type on or off from the dashboard, without
+// resubmitting the rest of its settings.
+func (a *App) setMeetingTypeActive(w http.ResponseWriter, r *http.Request) {
+	t, e := a.ownedMeetingType(r)
+	if e != nil {
+		http.NotFound(w, r)
+		return
+	}
+	active := r.PostForm.Get("active") == "1"
+	if active && t.Days == "" {
+		a.fail(w, r, http.StatusBadRequest, "Choose at least one available weekday before turning this meeting type on.")
+		return
+	}
+	if _, e = a.db.ExecContext(r.Context(), "UPDATE meeting_types SET active=? WHERE id=? AND user_id=?", active, t.ID, currentUser(r).ID); e != nil {
+		a.internal(w, r, e)
+		return
+	}
+	http.Redirect(w, r, a.adminURL("/?notice=saved#meeting-types"), http.StatusSeeOther)
+}
+
 func (a *App) deleteMeetingType(w http.ResponseWriter, r *http.Request) {
 	// Bookings keep their own copy of title, time, and timezone, so history survives.
 	_, e := a.db.ExecContext(r.Context(), "DELETE FROM meeting_types WHERE id=? AND user_id=?", r.PathValue("id"), currentUser(r).ID)
