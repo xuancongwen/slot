@@ -12,6 +12,7 @@ A small Google Calendar booking app for a home lab. One Go process, one SQLite d
 - A public booking link for each user: `/b/your-name`, listing their meeting types at `/b/your-name/type`, or showing the calendar directly when there is only one. No public user directory. With `SINGLE_HOST_URL_NAME` set, that host's page is the site root instead.
 - Multiple meeting types per user, each with its own length, IANA timezone, weekly availability, buffers, minimum notice, and booking horizon. A per-type timezone lets you publish a schedule for a trip alongside your usual one.
 - Optional host approval per meeting type. A request holds its time, but Google invites the guest only after the host approves it from the admin booking list. Because the booking page accepts any email address, this stops strangers from using your calendar to send invitations to people who never asked for them.
+- Disposable inboxes, such as mailinator.com and their subdomains, cannot book. The list is [disposable-email-domains](https://github.com/disposable-email-domains/disposable-email-domains) (CC0), embedded at build time; refresh it with `make disposable-domains`.
 - Full days off per user.
 - Locations in each user's profile: Google Meet (a fresh link per booking, created by Google) plus any links or addresses, such as a Zoom room. Guests pick one, the default preselected, or enter their own.
 - Pause/publish controls, upcoming and past booking list, cancellation, and password changes.
@@ -181,7 +182,7 @@ make bench   # slot-generation benchmark
 make fmt     # format the code
 ```
 
-Tests cover concurrent reservations, shared destination conflicts, DST gaps/repeated hours, host isolation, public/admin route separation (combined and separate), configuration validation, CSRF rejection, signed ticket integrity, registration/login, single-host registration and root page, restart recovery, encrypted token refresh, Google API batching/errors, idempotent insertion, cancellation retries, and the end-to-end HTTP booking flow with a fake Calendar service.
+Tests cover concurrent reservations, shared destination conflicts, DST gaps/repeated hours, host isolation, public/admin route separation (combined and separate), configuration validation, CSRF rejection, signed ticket integrity, registration/login, single-host registration and root page, restart recovery, encrypted token refresh, Google API batching/errors, idempotent insertion, cancellation retries, disposable-domain rejection, and the end-to-end HTTP booking flow with a fake Calendar service.
 
 The real Google consent/invitation flow requires your OAuth client and Google accounts. Automated tests use local HTTP doubles; they do not connect to anyone's calendar.
 

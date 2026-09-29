@@ -283,6 +283,10 @@ func (a *App) book(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, http.StatusBadRequest, "Enter your name and a valid email address.")
 		return
 	}
+	if a.disposableEmail(email) {
+		a.fail(w, r, http.StatusBadRequest, "Use an email address you keep. Disposable inboxes can’t book.")
+		return
+	}
 	reason := strings.TrimSpace(r.PostForm.Get("reason"))
 	if len(reason) > 1000 {
 		a.fail(w, r, http.StatusBadRequest, "Keep the reason for meeting to 1000 characters.")

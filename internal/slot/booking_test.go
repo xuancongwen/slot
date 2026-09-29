@@ -226,6 +226,29 @@ func TestBookingRejectsLongReason(t *testing.T) {
 	}
 }
 
+func TestDisposableEmailCannotBook(t *testing.T) {
+	a, _ := testApp(t)
+	u := seedHost(t, a, "alex")
+	mt := chatType(t, a, u)
+	for i, tc := range []struct {
+		email string
+		want  int
+	}{
+		{"guest@mailinator.com", 400},
+		{"guest@MAILINATOR.com", 400},
+		{"guest@inbox.mailinator.com", 400},
+		{"guest@example.com", 303},
+		{"guest@xyzmailinator.com", 303},
+	} {
+		t.Run(tc.email, func(t *testing.T) {
+			form := url.Values{"ticket": {a.ticket(u.ID, mt, tomorrow().Add(time.Duration(i)*time.Hour).Unix())}, "name": {"Guest"}, "email": {tc.email}}
+			if w := formRequest(a.publicHandler(), "/b/alex/chat", form, false); w.Code != tc.want {
+				t.Fatalf("got %d, want %d: %s", w.Code, tc.want, w.Body)
+			}
+		})
+	}
+}
+
 func TestHostPageListsActiveTypes(t *testing.T) {
 	a, _ := testApp(t)
 	u := seedHost(t, a, "alex")
