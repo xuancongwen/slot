@@ -125,6 +125,8 @@ func (a *App) adminHandler() http.Handler {
 	m.HandleFunc("POST /calendars/refresh", a.authenticated(a.refreshCalendars))
 	m.HandleFunc("POST /bookings/{id}/cancel", a.authenticated(a.cancelAdmin))
 	m.HandleFunc("POST /bookings/{id}/retry", a.authenticated(a.retryAdmin))
+	m.HandleFunc("POST /bookings/{id}/approve", a.authenticated(a.approveAdmin))
+	m.HandleFunc("POST /bookings/{id}/decline", a.authenticated(a.declineAdmin))
 	m.HandleFunc("POST /password", a.authenticated(a.changePassword))
 	return a.middleware(m, true)
 }

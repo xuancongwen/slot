@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS meeting_types (
  end_min INTEGER NOT NULL DEFAULT 1020, duration INTEGER NOT NULL DEFAULT 30,
  buffer INTEGER NOT NULL DEFAULT 0, notice INTEGER NOT NULL DEFAULT 120,
  horizon INTEGER NOT NULL DEFAULT 30, active INTEGER NOT NULL DEFAULT 1,
+ -- Hold each booking as a request until the host approves it; only then is the guest invited.
+ approval INTEGER NOT NULL DEFAULT 0,
  UNIQUE(user_id,slug)
 );
 CREATE TABLE IF NOT EXISTS sessions (
@@ -54,7 +56,7 @@ CREATE TABLE IF NOT EXISTS bookings (
  title TEXT NOT NULL, location TEXT NOT NULL, meet INTEGER NOT NULL DEFAULT 0, timezone TEXT NOT NULL,
  guest_timezone TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '',
  manage_token TEXT NOT NULL UNIQUE,
- status TEXT NOT NULL CHECK(status IN ('pending','confirmed','cancel_pending','cancelled','failed')),
+ status TEXT NOT NULL CHECK(status IN ('requested','pending','confirmed','cancel_pending','cancelled','declined','failed')),
  created INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
  next_attempt INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',
  -- When a confirmed booking's Google event was last compared with Slot's copy.
@@ -64,13 +66,13 @@ CREATE TABLE IF NOT EXISTS bookings (
 CREATE INDEX IF NOT EXISTS bookings_host_time ON bookings(user_id,block_start,block_end);
 CREATE INDEX IF NOT EXISTS bookings_retry ON bookings(status,next_attempt);
 CREATE TRIGGER IF NOT EXISTS no_overlapping_bookings BEFORE INSERT ON bookings
-WHEN NEW.status IN ('pending','confirmed','cancel_pending')
+WHEN NEW.status IN ('requested','pending','confirmed','cancel_pending')
 BEGIN
  SELECT RAISE(ABORT,'slot_overlap') WHERE EXISTS (
   SELECT 1 FROM bookings WHERE (user_id=NEW.user_id OR calendar_id IN (
    SELECT id FROM calendars WHERE google_id=(SELECT google_id FROM calendars WHERE id=NEW.calendar_id)
   ))
-  AND status IN ('pending','confirmed','cancel_pending')
+  AND status IN ('requested','pending','confirmed','cancel_pending')
   AND block_start < NEW.block_end AND block_end > NEW.block_start
  );
 END;

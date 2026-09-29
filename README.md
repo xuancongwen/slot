@@ -11,6 +11,7 @@ A small Google Calendar booking app for a home lab. One Go process, one SQLite d
 - Combined free/busy checks across selected calendars; one destination calendar for bookings.
 - A public booking link for each user: `/b/your-name`, listing their meeting types at `/b/your-name/type`, or showing the calendar directly when there is only one. No public user directory. With `SINGLE_HOST_URL_NAME` set, that host's page is the site root instead.
 - Multiple meeting types per user, each with its own length, IANA timezone, weekly availability, buffers, minimum notice, and booking horizon. A per-type timezone lets you publish a schedule for a trip alongside your usual one.
+- Optional host approval per meeting type. A request holds its time, but Google invites the guest only after the host approves it from the admin booking list. Because the booking page accepts any email address, this stops strangers from using your calendar to send invitations to people who never asked for them.
 - Full days off per user.
 - Locations in each user's profile: Google Meet (a fresh link per booking, created by Google) plus any links or addresses, such as a Zoom room. Guests pick one, the default preselected, or enter their own.
 - Pause/publish controls, upcoming and past booking list, cancellation, and password changes.
@@ -137,7 +138,7 @@ The app does not trust `X-Forwarded-For`. Its in-process rate limit therefore gr
 
 1. Slot generation follows the meeting type's timezone and weekly hours. Google is queried for current busy intervals across selected calendars, in batches of at most 50 per account.
 2. Availability is checked again on submission. Errors or missing Google calendar results close availability rather than treating the calendar as empty.
-3. An SQLite trigger reserves the interval atomically. Pending and cancelling bookings block time too. Hosts using the same Google destination calendar cannot reserve overlapping times through Slot.
+3. An SQLite trigger reserves the interval atomically. Requests awaiting approval, pending bookings, and cancelling bookings block time too. Hosts using the same Google destination calendar cannot reserve overlapping times through Slot.
 4. A background worker runs every 15 seconds and inserts the Google event using a stable ID. A timed-out write can be retried without intentionally creating a second event. The signed form ticket makes duplicate form submissions return the same booking.
 5. The booking is marked confirmed only after Google accepts it or an earlier insertion is verified. Google is asked to notify the guest. The confirmation page accurately describes pending states and refreshes while waiting.
 6. Cancellation is also durable: the slot is not released until Google confirms deletion or reports that the event is already absent.

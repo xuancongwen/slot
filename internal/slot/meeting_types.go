@@ -71,6 +71,7 @@ func (a *App) saveMeetingType(w http.ResponseWriter, r *http.Request) {
 	t.Notice, e5 = strconv.Atoi(f.Get("notice"))
 	t.Horizon, e6 = strconv.Atoi(f.Get("horizon"))
 	t.Active = f.Get("active") == "on"
+	t.Approval = f.Get("approval") == "on"
 	t.Days = ""
 	for _, d := range days {
 		for _, v := range f["days"] {
@@ -96,9 +97,9 @@ func (a *App) saveMeetingType(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if t.ID == 0 {
-		_, e = a.db.ExecContext(r.Context(), `INSERT INTO meeting_types(user_id,slug,name,timezone,days,start_min,end_min,duration,buffer,notice,horizon,active) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, u.ID, t.Slug, t.Name, t.Timezone, t.Days, t.StartMin, t.EndMin, t.Duration, t.Buffer, t.Notice, t.Horizon, t.Active)
+		_, e = a.db.ExecContext(r.Context(), `INSERT INTO meeting_types(user_id,slug,name,timezone,days,start_min,end_min,duration,buffer,notice,horizon,active,approval) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, u.ID, t.Slug, t.Name, t.Timezone, t.Days, t.StartMin, t.EndMin, t.Duration, t.Buffer, t.Notice, t.Horizon, t.Active, t.Approval)
 	} else {
-		_, e = a.db.ExecContext(r.Context(), `UPDATE meeting_types SET slug=?,name=?,timezone=?,days=?,start_min=?,end_min=?,duration=?,buffer=?,notice=?,horizon=?,active=? WHERE id=? AND user_id=?`, t.Slug, t.Name, t.Timezone, t.Days, t.StartMin, t.EndMin, t.Duration, t.Buffer, t.Notice, t.Horizon, t.Active, t.ID, u.ID)
+		_, e = a.db.ExecContext(r.Context(), `UPDATE meeting_types SET slug=?,name=?,timezone=?,days=?,start_min=?,end_min=?,duration=?,buffer=?,notice=?,horizon=?,active=?,approval=? WHERE id=? AND user_id=?`, t.Slug, t.Name, t.Timezone, t.Days, t.StartMin, t.EndMin, t.Duration, t.Buffer, t.Notice, t.Horizon, t.Active, t.Approval, t.ID, u.ID)
 	}
 	if e != nil {
 		if strings.Contains(e.Error(), "UNIQUE") {

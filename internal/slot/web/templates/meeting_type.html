@@ -52,6 +52,7 @@
           <input type="number" name="horizon" min="1" max="90" value="{{.MeetingType.Horizon}}" required>
         </label>
       </div>
+      <label class="check-row"><input type="checkbox" name="approval" {{if .MeetingType.Approval}}checked{{end}}><span>Approve each booking myself<small>Requests hold the time, and the guest is invited only once you approve.</small></span></label>
       <label class="check-row"><input type="checkbox" name="active" {{if .MeetingType.Active}}checked{{end}}>Guests can book this type</label>
       <button>Save meeting type</button>
     </form>
