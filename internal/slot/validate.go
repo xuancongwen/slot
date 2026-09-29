@@ -28,6 +28,8 @@ func validTimezone(tz string) bool {
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$`)
 
+var dataAttrPattern = regexp.MustCompile(`^data-[a-z0-9-]+$`)
+
 // slugify turns a name like "Coffee chat (30 min)" into "coffee-chat-30-min".
 func slugify(name string) string {
 	var b strings.Builder

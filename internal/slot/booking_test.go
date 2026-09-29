@@ -307,6 +307,11 @@ func TestGuestCalendarPage(t *testing.T) {
 	if strings.Contains(body, "data-detect-guest-timezone") {
 		t.Error("explicit timezone should not be re-detected")
 	}
+	if body := get("/b/alex/chat"); strings.Contains(body, "<script defer") {
+		t.Error("no tracker should load when none is configured")
+	}
+	a.cfg.AnalyticsScript = "https://stats.example.com/script.js"
+	a.cfg.AnalyticsAttrs = [][2]string{{"data-website-id", "abc"}}
 	for _, tc := range []struct {
 		path      string
 		analytics bool
@@ -316,14 +321,15 @@ func TestGuestCalendarPage(t *testing.T) {
 	} {
 		t.Run(tc.path, func(t *testing.T) {
 			w := getRequest(h, tc.path)
-			if got := strings.Contains(w.Body.String(), "analytics.samwen.com/script.js"); got != tc.analytics {
+			if got := strings.Contains(w.Body.String(), `<script defer src="https://stats.example.com/script.js" data-website-id="abc"></script>`); got != tc.analytics {
 				t.Errorf("analytics script included = %v, want %v", got, tc.analytics)
 			}
-			if got := strings.Contains(w.Header().Get("Content-Security-Policy"), "connect-src https://analytics.samwen.com"); got != tc.analytics {
+			if got := strings.Contains(w.Header().Get("Content-Security-Policy"), "connect-src https://stats.example.com;"); got != tc.analytics {
 				t.Errorf("security policy allows analytics = %v, want %v", got, tc.analytics)
 			}
 		})
 	}
+	a.cfg.AnalyticsScript, a.cfg.AnalyticsAttrs = "", nil
 	if body = get("/b/alex/chat"); !strings.Contains(body, `data-detect-guest-timezone="UTC"`) {
 		t.Error("page without tz should ask the browser for its zone")
 	}

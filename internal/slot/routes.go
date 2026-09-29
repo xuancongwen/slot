@@ -2,9 +2,12 @@ package slot
 
 import (
 	"bytes"
+	"html/template"
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 )
 
 type Page struct {
@@ -34,18 +37,36 @@ type Page struct {
 	// or / when that is the only type. Date and time links stay on it.
 	ViewURL string
 
-	// Analytics loads the page view tracker, which the page's security policy
-	// must then allow.
+	// Analytics loads the page view tracker when one is configured; render then
+	// fills Tracker and widens the page's security policy to allow it.
 	Analytics bool
+	Tracker   template.HTML
 }
 
-const (
-	analyticsOrigin = "https://analytics.samwen.com"
-	analyticsCSP    = "default-src 'none'; style-src 'self'; img-src 'self'; script-src 'self' " + analyticsOrigin + "; connect-src " + analyticsOrigin + "; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
-)
+// trackerTag is the script element for the configured page view tracker.
+func (c Config) trackerTag() template.HTML {
+	var b strings.Builder
+	b.WriteString(`<script defer src="` + template.HTMLEscapeString(c.AnalyticsScript) + `"`)
+	for _, attr := range c.AnalyticsAttrs {
+		b.WriteString(" " + template.HTMLEscapeString(attr[0]) + `="` + template.HTMLEscapeString(attr[1]) + `"`)
+	}
+	b.WriteString("></script>")
+	return template.HTML(b.String())
+}
+
+// trackerCSP lets the tracker's origin serve its script and receive page views.
+func (c Config) trackerCSP() string {
+	u, _ := url.Parse(c.AnalyticsScript)
+	origin := u.Scheme + "://" + u.Host
+	return "default-src 'none'; style-src 'self'; img-src 'self'; script-src 'self' " + origin + "; connect-src " + origin + "; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+}
 
 func (a *App) render(w http.ResponseWriter, r *http.Request, name string, p Page, status int) {
 	p.CSRF = a.csrfToken(w, r, p.Admin)
+	p.Analytics = p.Analytics && a.cfg.AnalyticsScript != ""
+	if p.Analytics {
+		p.Tracker = a.cfg.trackerTag()
+	}
 	var buf bytes.Buffer
 	if e := a.templates.ExecuteTemplate(&buf, name, p); e != nil {
 		slog.Error("render", "template", name, "error", e)
@@ -53,7 +74,7 @@ func (a *App) render(w http.ResponseWriter, r *http.Request, name string, p Page
 		return
 	}
 	if p.Analytics {
-		w.Header().Set("Content-Security-Policy", analyticsCSP)
+		w.Header().Set("Content-Security-Policy", a.cfg.trackerCSP())
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
