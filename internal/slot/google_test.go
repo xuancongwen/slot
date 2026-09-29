@@ -95,14 +95,63 @@ func TestGoogleInsertConflictAndDelete(t *testing.T) {
 	}
 }
 
+func TestGoogleCheck(t *testing.T) {
+	a, _ := testApp(t)
+	u := seedHost(t, a, "alex")
+	c, _ := a.bookingCalendar(context.Background(), u.WriteCalendar.Int64)
+	b := bookingFor(u, tomorrow())
+	moved := tomorrow().Add(time.Hour)
+	tests := []struct {
+		name           string
+		event          any
+		eventStatus    int
+		calendarStatus int
+		want           EventState
+		wantErr        bool
+	}{
+		{"unchanged", map[string]any{"status": "confirmed", "start": map[string]string{"dateTime": tomorrow().Format(time.RFC3339)}, "end": map[string]string{"dateTime": tomorrow().Add(30 * time.Minute).Format(time.RFC3339)}}, 200, 200, EventState{Start: b.Start, End: b.End}, false},
+		{"moved", map[string]any{"status": "confirmed", "start": map[string]string{"dateTime": moved.In(mustLoad(t, "Asia/Singapore")).Format(time.RFC3339)}, "end": map[string]string{"dateTime": moved.Add(time.Hour).Format(time.RFC3339)}}, 200, 200, EventState{Start: moved.Unix(), End: moved.Add(time.Hour).Unix()}, false},
+		{"all-day", map[string]any{"status": "confirmed", "start": map[string]string{"date": "2026-10-05"}, "end": map[string]string{"date": "2026-10-06"}}, 200, 200, EventState{}, false},
+		{"declined", map[string]any{"status": "confirmed", "attendees": []map[string]string{{"email": "host@example.com", "responseStatus": "accepted"}, {"email": "Guest@Example.com", "responseStatus": "declined"}}}, 200, 200, EventState{Declined: true}, false},
+		{"cancelled", map[string]any{"status": "cancelled"}, 200, 200, EventState{Gone: true}, false},
+		{"purged", nil, 404, 200, EventState{Gone: true}, false},
+		{"calendar unreachable", nil, 404, 404, EventState{}, true},
+		{"server error", nil, 500, 200, EventState{}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != "GET" {
+					t.Errorf("unexpected %s", r.Method)
+				}
+				if strings.HasSuffix(r.URL.Path, "/events/"+b.ID) {
+					w.WriteHeader(tt.eventStatus)
+					json.NewEncoder(w).Encode(tt.event)
+					return
+				}
+				w.WriteHeader(tt.calendarStatus)
+				fmt.Fprint(w, "{}")
+			}))
+			defer s.Close()
+			g := &Google{app: a, baseURL: s.URL}
+			got, e := g.Check(context.Background(), c, b)
+			if got != tt.want || (e != nil) != tt.wantErr {
+				t.Fatalf("got %+v, error %v", got, e)
+			}
+		})
+	}
+}
+
 func TestGoogleInsertRequestsMeet(t *testing.T) {
 	a, _ := testApp(t)
 	u := seedHost(t, a, "alex")
 	c, _ := a.bookingCalendar(context.Background(), u.WriteCalendar.Int64)
 	b := bookingFor(u, tomorrow())
 	b.Meet = true
+	b.Reason = "Plan the launch"
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
+			Description    string
 			ConferenceData struct {
 				CreateRequest struct {
 					RequestID             string
@@ -114,6 +163,9 @@ func TestGoogleInsertRequestsMeet(t *testing.T) {
 		req := body.ConferenceData.CreateRequest
 		if r.URL.Query().Get("conferenceDataVersion") != "1" || req.RequestID != b.ID || req.ConferenceSolutionKey.Type != "hangoutsMeet" {
 			t.Errorf("Meet not requested: %s %+v", r.URL.RawQuery, req)
+		}
+		if !strings.HasPrefix(body.Description, "Plan the launch\n\nManage or cancel: ") {
+			t.Errorf("description %q", body.Description)
 		}
 		json.NewEncoder(w).Encode(map[string]string{"hangoutLink": fakeMeetLink})
 	}))

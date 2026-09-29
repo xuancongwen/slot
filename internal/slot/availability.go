@@ -109,7 +109,7 @@ func (a *App) availability(ctx context.Context, u User, t MeetingType, from, to 
 		var start, end int64
 		e := s.Scan(&start, &end)
 		return Span{time.Unix(start, 0), time.Unix(end, 0)}, e
-	}, `SELECT block_start,block_end FROM bookings WHERE user_id=? AND status IN ('pending','confirmed','cancel_pending') AND block_start<? AND block_end>?`, u.ID, busyTo.Unix(), busyFrom.Unix())
+	}, `SELECT block_start,block_end FROM bookings WHERE user_id=? AND status IN ('requested','pending','confirmed','cancel_pending') AND block_start<? AND block_end>?`, u.ID, busyTo.Unix(), busyFrom.Unix())
 	if e != nil {
 		return nil, e
 	}

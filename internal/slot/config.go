@@ -18,6 +18,11 @@ type Config struct {
 	// SingleHost is the URL name of the only host. Their page is served at the public
 	// root, and registration closes once their account exists.
 	SingleHost string
+	// AnalyticsScript is the URL of a page view tracker, such as Umami or Plausible,
+	// loaded on booking pages. Empty loads none. AnalyticsAttrs are the data-*
+	// name/value pairs its script tag needs, in order.
+	AnalyticsScript string
+	AnalyticsAttrs  [][2]string
 }
 
 func env(key, fallback string) string {
@@ -57,6 +62,23 @@ func LoadConfig() (Config, error) {
 	// Otherwise whoever reaches the admin first becomes the only host.
 	if c.SingleHost != "" && c.RegistrationCode == "" {
 		return c, errors.New("SINGLE_HOST_URL_NAME requires REGISTRATION_CODE")
+	}
+	c.AnalyticsScript = os.Getenv("ANALYTICS_SCRIPT_URL")
+	attrs := strings.Fields(os.Getenv("ANALYTICS_SCRIPT_ATTRS"))
+	if c.AnalyticsScript != "" {
+		u, err := url.Parse(c.AnalyticsScript)
+		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil {
+			return c, errors.New("ANALYTICS_SCRIPT_URL must be an absolute http(s) URL")
+		}
+	} else if len(attrs) > 0 {
+		return c, errors.New("ANALYTICS_SCRIPT_ATTRS requires ANALYTICS_SCRIPT_URL")
+	}
+	for _, attr := range attrs {
+		name, value, _ := strings.Cut(attr, "=")
+		if !dataAttrPattern.MatchString(name) {
+			return c, errors.New("ANALYTICS_SCRIPT_ATTRS must be space-separated data-name=value pairs")
+		}
+		c.AnalyticsAttrs = append(c.AnalyticsAttrs, [2]string{name, value})
 	}
 	return c, nil
 }

@@ -77,6 +77,7 @@ func (a *App) saveMeetingType(w http.ResponseWriter, r *http.Request) {
 	t.Notice, e5 = strconv.Atoi(f.Get("notice"))
 	t.Horizon, e6 = strconv.Atoi(f.Get("horizon"))
 	t.Active = f.Get("active") == "on"
+	t.Approval = f.Get("approval") == "on"
 	t.AllLocations = f.Get("location_mode") != "some"
 	t.GuestLocation = f.Get("guest_location") == "on"
 	t.Days = ""
@@ -110,9 +111,9 @@ func (a *App) saveMeetingType(w http.ResponseWriter, r *http.Request) {
 	e = a.inTx(r.Context(), func(tx *sql.Tx) error {
 		var e error
 		if t.ID == 0 {
-			e = tx.QueryRowContext(r.Context(), `INSERT INTO meeting_types(user_id,slug,name,timezone,days,start_min,end_min,duration,buffer,notice,horizon,active,all_locations,guest_location) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id`, u.ID, t.Slug, t.Name, t.Timezone, t.Days, t.StartMin, t.EndMin, t.Duration, t.Buffer, t.Notice, t.Horizon, t.Active, t.AllLocations, t.GuestLocation).Scan(&t.ID)
+			e = tx.QueryRowContext(r.Context(), `INSERT INTO meeting_types(user_id,slug,name,timezone,days,start_min,end_min,duration,buffer,notice,horizon,active,approval,all_locations,guest_location) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id`, u.ID, t.Slug, t.Name, t.Timezone, t.Days, t.StartMin, t.EndMin, t.Duration, t.Buffer, t.Notice, t.Horizon, t.Active, t.Approval, t.AllLocations, t.GuestLocation).Scan(&t.ID)
 		} else {
-			_, e = tx.ExecContext(r.Context(), `UPDATE meeting_types SET slug=?,name=?,timezone=?,days=?,start_min=?,end_min=?,duration=?,buffer=?,notice=?,horizon=?,active=?,all_locations=?,guest_location=? WHERE id=? AND user_id=?`, t.Slug, t.Name, t.Timezone, t.Days, t.StartMin, t.EndMin, t.Duration, t.Buffer, t.Notice, t.Horizon, t.Active, t.AllLocations, t.GuestLocation, t.ID, u.ID)
+			_, e = tx.ExecContext(r.Context(), `UPDATE meeting_types SET slug=?,name=?,timezone=?,days=?,start_min=?,end_min=?,duration=?,buffer=?,notice=?,horizon=?,active=?,approval=?,all_locations=?,guest_location=? WHERE id=? AND user_id=?`, t.Slug, t.Name, t.Timezone, t.Days, t.StartMin, t.EndMin, t.Duration, t.Buffer, t.Notice, t.Horizon, t.Active, t.Approval, t.AllLocations, t.GuestLocation, t.ID, u.ID)
 		}
 		if e != nil {
 			return e

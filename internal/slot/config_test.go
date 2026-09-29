@@ -12,7 +12,13 @@ func TestLoadConfig(t *testing.T) {
 		wantErr string
 		check   func(Config) bool
 	}{
-		{name: "defaults", check: func(c Config) bool { return !c.HostAdminSeparately && c.SingleHost == "" }},
+		{name: "defaults", check: func(c Config) bool { return !c.HostAdminSeparately && c.SingleHost == "" && c.AnalyticsScript == "" }},
+		{name: "analytics", env: map[string]string{"ANALYTICS_SCRIPT_URL": "https://stats.example.com/script.js", "ANALYTICS_SCRIPT_ATTRS": "data-website-id=abc  data-auto-track=false"}, check: func(c Config) bool {
+			return len(c.AnalyticsAttrs) == 2 && c.AnalyticsAttrs[0] == [2]string{"data-website-id", "abc"} && c.AnalyticsAttrs[1] == [2]string{"data-auto-track", "false"}
+		}},
+		{name: "analytics script not a URL", env: map[string]string{"ANALYTICS_SCRIPT_URL": "/script.js"}, wantErr: "ANALYTICS_SCRIPT_URL"},
+		{name: "analytics attributes without a script", env: map[string]string{"ANALYTICS_SCRIPT_ATTRS": "data-website-id=abc"}, wantErr: "requires ANALYTICS_SCRIPT_URL"},
+		{name: "analytics attribute not data-*", env: map[string]string{"ANALYTICS_SCRIPT_URL": "https://stats.example.com/script.js", "ANALYTICS_SCRIPT_ATTRS": "onload=alert(1)"}, wantErr: "data-name=value"},
 		{name: "single host with a code", env: map[string]string{"SINGLE_HOST_URL_NAME": " Sam ", "REGISTRATION_CODE": "secret"}, check: func(c Config) bool { return c.SingleHost == "sam" }},
 		{name: "single host without a code", env: map[string]string{"SINGLE_HOST_URL_NAME": "sam"}, wantErr: "REGISTRATION_CODE"},
 		{name: "single host not a URL name", env: map[string]string{"SINGLE_HOST_URL_NAME": "sam/wen", "REGISTRATION_CODE": "secret"}, wantErr: "SINGLE_HOST_URL_NAME"},
@@ -22,7 +28,7 @@ func TestLoadConfig(t *testing.T) {
 		{name: "separate admin on the public origin", env: map[string]string{"HOST_ADMIN_SEPARATELY": "true", "PUBLIC_URL": "https://book.example.com", "ADMIN_URL": "https://book.example.com"}, wantErr: "must differ"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, key := range []string{"SINGLE_HOST", "SINGLE_HOST_URL_NAME", "REGISTRATION_CODE", "HOST_ADMIN_SEPARATELY", "PUBLIC_URL", "ADMIN_URL"} {
+			for _, key := range []string{"SINGLE_HOST", "SINGLE_HOST_URL_NAME", "REGISTRATION_CODE", "HOST_ADMIN_SEPARATELY", "PUBLIC_URL", "ADMIN_URL", "ANALYTICS_SCRIPT_URL", "ANALYTICS_SCRIPT_ATTRS"} {
 				t.Setenv(key, tc.env[key])
 			}
 			c, e := LoadConfig()
