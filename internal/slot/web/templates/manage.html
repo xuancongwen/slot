@@ -25,7 +25,7 @@
     <p class="hint">{{.Booking.GuestName}} · {{.Booking.GuestEmail}}</p>
 
     {{if eq .Booking.Status "confirmed"}}
-    <a class="button full" href="/manage/{{.Booking.ManageToken}}/event.ics">Download calendar event</a>
+    <a class="button full" href="/manage/{{.Booking.ManageToken}}/event.ics" download>Download calendar event</a>
     {{end}}
     {{if or (eq .Booking.Status "pending") (eq .Booking.Status "cancel_pending")}}
     <a class="button secondary full" href="/manage/{{.Booking.ManageToken}}">Refresh status</a>
