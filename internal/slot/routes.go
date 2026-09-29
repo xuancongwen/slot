@@ -32,6 +32,8 @@ type Page struct {
 	Booking                                             Booking
 	Start                                               int64
 	SlotLabel, Ticket                                   string
+	// ConfirmCode is set when the guest opened a valid link from their email.
+	ConfirmCode string
 
 	// ViewURL is where the booking calendar is shown: /b/host/type, or /b/host
 	// or / when that is the only type. Date and time links stay on it.
@@ -127,6 +129,7 @@ func (a *App) publicHandler() http.Handler {
 	m.HandleFunc("POST /b/{slug}/{type}", a.book)
 	m.HandleFunc("GET /manage/{token}", a.manage)
 	m.HandleFunc("POST /manage/{token}/cancel", a.cancelPublic)
+	m.HandleFunc("POST /manage/{token}/confirm", a.confirmPublic)
 	m.HandleFunc("GET /manage/{token}/event.ics", a.ics)
 	return a.middleware(m, false)
 }

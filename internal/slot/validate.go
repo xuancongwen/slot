@@ -12,6 +12,21 @@ func validEmail(s string) bool {
 	return e == nil && m.Address == s && len(s) <= 254 && !strings.ContainsAny(s, "\r\n")
 }
 
+// disposableEmail reports whether email's domain, or a domain above it, is a known
+// throwaway inbox provider.
+func (a *App) disposableEmail(email string) bool {
+	domain := strings.ToLower(email[strings.LastIndexByte(email, '@')+1:])
+	for {
+		if a.disposable[domain] {
+			return true
+		}
+		var ok bool
+		if _, domain, ok = strings.Cut(domain, "."); !ok {
+			return false
+		}
+	}
+}
+
 func parseMinutes(s string) (int, error) {
 	t, e := time.Parse("15:04", s)
 	if e != nil {

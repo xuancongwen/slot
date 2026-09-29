@@ -23,7 +23,7 @@ func (a *App) worker(ctx context.Context) {
 }
 
 func (a *App) reconcile(ctx context.Context) {
-	ids, e := queryAll(ctx, a.db, scanString, "SELECT id FROM bookings WHERE status IN ('pending','cancel_pending') AND next_attempt<=? ORDER BY created LIMIT 20", time.Now().Unix())
+	ids, e := queryAll(ctx, a.db, scanString, "SELECT id FROM bookings WHERE status IN ('pending','cancel_pending') AND verified=1 AND next_attempt<=? ORDER BY created LIMIT 20", time.Now().Unix())
 	if e != nil {
 		slog.Error("list bookings to sync", "error", e)
 	}
@@ -44,6 +44,14 @@ func (a *App) reconcile(ctx context.Context) {
 		}
 		a.checkBooking(ctx, id)
 	}
+	// Unconfirmed bookings release their time after the hold, and are kept for a day
+	// so they still count against their address's daily limit.
+	if _, e = a.db.ExecContext(ctx, "UPDATE bookings SET status='cancelled' WHERE verified=0 AND status IN ('requested','pending') AND created<=?", now.Add(-holdWindow).Unix()); e != nil && ctx.Err() == nil {
+		slog.Error("release unconfirmed bookings", "error", e)
+	}
+	if _, e = a.db.ExecContext(ctx, "DELETE FROM bookings WHERE verified=0 AND created<=?", now.Add(-24*time.Hour).Unix()); e != nil && ctx.Err() == nil {
+		slog.Error("delete unconfirmed bookings", "error", e)
+	}
 	for _, table := range []string{"sessions", "oauth_states"} {
 		if _, e = a.db.ExecContext(ctx, "DELETE FROM "+table+" WHERE expires<?", time.Now().Unix()); e != nil && ctx.Err() == nil {
 			slog.Error("expire rows", "table", table, "error", e)
@@ -56,7 +64,7 @@ func (a *App) syncBooking(ctx context.Context, id string) {
 	a.syncMu.Lock()
 	defer a.syncMu.Unlock()
 	b, e := scanBooking(a.db.QueryRowContext(ctx, "SELECT "+bookingColumns+" FROM bookings WHERE id=?", id))
-	if e != nil || (b.Status != "pending" && b.Status != "cancel_pending") {
+	if e != nil || !b.Verified || (b.Status != "pending" && b.Status != "cancel_pending") {
 		return
 	}
 	ctx, cancel := context.WithTimeout(ctx, 35*time.Second)
@@ -130,7 +138,7 @@ func (a *App) checkBooking(ctx context.Context, id string) {
 func (a *App) cancelBooking(ctx context.Context, b Booking) error {
 	a.syncMu.Lock()
 	defer a.syncMu.Unlock()
-	// A request has no Google event yet, so it is cancelled on the spot.
-	_, e := a.db.ExecContext(ctx, "UPDATE bookings SET status=CASE status WHEN 'requested' THEN 'cancelled' ELSE 'cancel_pending' END,next_attempt=0 WHERE id=? AND status IN ('requested','pending','confirmed')", b.ID)
+	// Requests and unconfirmed bookings have no Google event yet, so they are cancelled on the spot.
+	_, e := a.db.ExecContext(ctx, "UPDATE bookings SET status=CASE WHEN status='requested' OR verified=0 THEN 'cancelled' ELSE 'cancel_pending' END,next_attempt=0 WHERE id=? AND status IN ('requested','pending','confirmed')", b.ID)
 	return e
 }

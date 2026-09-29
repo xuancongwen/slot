@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/mail"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,7 +33,11 @@ import (
 // timezones.txt lists UTC plus the canonical IANA zones ("Z" entries in tzdata.zi,
 // excluding Etc/*), so the picker offers one name per region rather than every alias.
 //
-//go:embed web/templates/*.html web/static/* schema.sql timezones.txt
+// disposable_domains.txt is the CC0 blocklist from
+// github.com/disposable-email-domains/disposable-email-domains; refresh it with
+// make disposable-domains.
+//
+//go:embed web/templates/*.html web/static/* schema.sql timezones.txt disposable_domains.txt
 var assets embed.FS
 
 // App holds the database, keys, templates, and Google client shared by both listeners.
@@ -44,6 +49,10 @@ type App struct {
 	templates  *template.Template
 	timezones  []string
 	google     CalendarProvider
+	// mail is nil when SMTP is not configured; guests' addresses then go unverified.
+	mail Mailer
+	// disposable holds throwaway inbox domains, such as mailinator.com, that cannot book.
+	disposable map[string]bool
 	oauth      *oauth2.Config
 	http       *http.Client
 	limit      *Limiter
@@ -160,6 +169,19 @@ func New(c Config) (*App, error) {
 	a.signingKey = mac.Sum(nil)
 	a.oauth = &oauth2.Config{ClientID: c.GoogleClientID, ClientSecret: c.GoogleClientSecret, RedirectURL: c.AdminURL + adminPath + "/oauth/callback", Endpoint: oauth2.Endpoint{AuthURL: "https://accounts.google.com/o/oauth2/v2/auth", TokenURL: "https://oauth2.googleapis.com/token"}, Scopes: []string{"https://www.googleapis.com/auth/calendar.calendarlist.readonly", "https://www.googleapis.com/auth/calendar.events.freebusy", "https://www.googleapis.com/auth/calendar.events"}}
 	a.google = &Google{app: a, baseURL: "https://www.googleapis.com/calendar/v3"}
+	domains, _ := assets.ReadFile("disposable_domains.txt")
+	a.disposable = make(map[string]bool)
+	for _, d := range strings.Fields(string(domains)) {
+		a.disposable[d] = true
+	}
+	if c.SMTPHost != "" {
+		from, err := mail.ParseAddress(c.MailFrom)
+		if err != nil {
+			db.Close()
+			return nil, fmt.Errorf("parsing MAIL_FROM: %w", err)
+		}
+		a.mail = &SMTP{Host: c.SMTPHost, Port: c.SMTPPort, Username: c.SMTPUsername, Password: c.SMTPPassword, From: from}
+	}
 	return a, nil
 }
 
@@ -203,6 +225,9 @@ func (a *App) Run(ctx context.Context) error {
 		}()
 	}
 	slog.Info("Slot ready", "public", a.cfg.PublicURL, "admin", a.cfg.AdminURL+a.adminPath+"/")
+	if a.mail == nil {
+		slog.Warn("SMTP_HOST is not set, so guests' email addresses are not verified before Google invites them")
+	}
 	wg.Add(1)
 	go func() { defer wg.Done(); a.worker(ctx) }()
 	<-ctx.Done()

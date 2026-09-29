@@ -138,18 +138,18 @@ type Booking struct {
 	Start, End, BlockStart, BlockEnd               int64
 	Title, Location, Timezone, ManageToken, Status string
 	GuestTimezone, Reason                          string
-	Meet                                           bool
+	Meet, Verified                                 bool
 	Created                                        int64
 	Attempts                                       int
 	NextAttempt                                    int64
 	LastError                                      string
 }
 
-const bookingColumns = "id,user_id,calendar_id,guest_name,guest_email,start,end,block_start,block_end,title,location,meet,timezone,guest_timezone,reason,manage_token,status,created,attempts,next_attempt,last_error"
+const bookingColumns = "id,user_id,calendar_id,guest_name,guest_email,start,end,block_start,block_end,title,location,meet,timezone,guest_timezone,reason,manage_token,status,created,attempts,next_attempt,last_error,verified"
 
 func scanBooking(s scanner) (Booking, error) {
 	var b Booking
-	e := s.Scan(&b.ID, &b.UserID, &b.CalendarID, &b.GuestName, &b.GuestEmail, &b.Start, &b.End, &b.BlockStart, &b.BlockEnd, &b.Title, &b.Location, &b.Meet, &b.Timezone, &b.GuestTimezone, &b.Reason, &b.ManageToken, &b.Status, &b.Created, &b.Attempts, &b.NextAttempt, &b.LastError)
+	e := s.Scan(&b.ID, &b.UserID, &b.CalendarID, &b.GuestName, &b.GuestEmail, &b.Start, &b.End, &b.BlockStart, &b.BlockEnd, &b.Title, &b.Location, &b.Meet, &b.Timezone, &b.GuestTimezone, &b.Reason, &b.ManageToken, &b.Status, &b.Created, &b.Attempts, &b.NextAttempt, &b.LastError, &b.Verified)
 	return b, e
 }
 
@@ -158,10 +158,10 @@ func (a *App) getBooking(ctx context.Context, token string) (Booking, error) {
 }
 
 func (a *App) hostBookings(ctx context.Context, uid int64) ([]Booking, error) {
-	return queryAll(ctx, a.db, scanBooking, "SELECT "+bookingColumns+" FROM bookings WHERE user_id=? ORDER BY start DESC LIMIT 100", uid)
+	return queryAll(ctx, a.db, scanBooking, "SELECT "+bookingColumns+" FROM bookings WHERE user_id=? AND verified=1 ORDER BY start DESC LIMIT 100", uid)
 }
 
 func (a *App) reserve(ctx context.Context, b Booking) error {
-	_, e := a.db.ExecContext(ctx, `INSERT INTO bookings (id,user_id,calendar_id,guest_name,guest_email,start,end,block_start,block_end,title,location,meet,timezone,guest_timezone,reason,manage_token,status,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, b.ID, b.UserID, b.CalendarID, b.GuestName, b.GuestEmail, b.Start, b.End, b.BlockStart, b.BlockEnd, b.Title, b.Location, b.Meet, b.Timezone, b.GuestTimezone, b.Reason, b.ManageToken, b.Status, b.Created)
+	_, e := a.db.ExecContext(ctx, `INSERT INTO bookings (id,user_id,calendar_id,guest_name,guest_email,start,end,block_start,block_end,title,location,meet,timezone,guest_timezone,reason,manage_token,status,created,verified) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, b.ID, b.UserID, b.CalendarID, b.GuestName, b.GuestEmail, b.Start, b.End, b.BlockStart, b.BlockEnd, b.Title, b.Location, b.Meet, b.Timezone, b.GuestTimezone, b.Reason, b.ManageToken, b.Status, b.Created, b.Verified)
 	return e
 }

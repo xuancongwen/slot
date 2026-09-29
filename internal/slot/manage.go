@@ -1,6 +1,7 @@
 package slot
 
 import (
+	"crypto/hmac"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -9,14 +10,23 @@ import (
 	"time"
 )
 
-func (a *App) manage(w http.ResponseWriter, r *http.Request) {
+// publicBooking loads the booking named by the manage token in the URL.
+func (a *App) publicBooking(w http.ResponseWriter, r *http.Request) (Booking, bool) {
 	b, e := a.getBooking(r.Context(), r.PathValue("token"))
 	if errors.Is(e, sql.ErrNoRows) {
 		http.NotFound(w, r)
-		return
+		return b, false
 	}
 	if e != nil {
 		a.internal(w, r, e)
+		return b, false
+	}
+	return b, true
+}
+
+func (a *App) manage(w http.ResponseWriter, r *http.Request) {
+	b, ok := a.publicBooking(w, r)
+	if !ok {
 		return
 	}
 	u, e := a.userByID(r.Context(), b.UserID)
@@ -24,20 +34,20 @@ func (a *App) manage(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	a.render(w, r, "manage", Page{Title: "Your booking", Booking: b, User: u}, http.StatusOK)
+	p := Page{Title: "Your booking", Booking: b, User: u}
+	// Opening the emailed link only offers the button; confirmPublic does the confirming.
+	if code := r.URL.Query().Get("confirm"); !b.Verified && time.Now().Unix() < b.HoldExpires() && hmac.Equal([]byte(code), []byte(a.confirmCode(b))) {
+		p.ConfirmCode = code
+	}
+	a.render(w, r, "manage", p, http.StatusOK)
 }
 
 func (a *App) cancelPublic(w http.ResponseWriter, r *http.Request) {
-	b, e := a.getBooking(r.Context(), r.PathValue("token"))
-	if errors.Is(e, sql.ErrNoRows) {
-		http.NotFound(w, r)
+	b, ok := a.publicBooking(w, r)
+	if !ok {
 		return
 	}
-	if e != nil {
-		a.internal(w, r, e)
-		return
-	}
-	if e = a.cancelBooking(r.Context(), b); e != nil {
+	if e := a.cancelBooking(r.Context(), b); e != nil {
 		a.internal(w, r, e)
 		return
 	}
@@ -63,11 +73,11 @@ func (a *App) cancelAdmin(w http.ResponseWriter, r *http.Request) {
 
 // approveAdmin hands a request to the worker, which creates the event and invites the guest.
 func (a *App) approveAdmin(w http.ResponseWriter, r *http.Request) {
-	a.decide(w, r, "UPDATE bookings SET status='pending',next_attempt=0 WHERE id=? AND user_id=? AND status='requested' AND start>?", "approved")
+	a.decide(w, r, "UPDATE bookings SET status='pending',next_attempt=0 WHERE id=? AND user_id=? AND status='requested' AND verified=1 AND start>?", "approved")
 }
 
 func (a *App) declineAdmin(w http.ResponseWriter, r *http.Request) {
-	a.decide(w, r, "UPDATE bookings SET status='declined' WHERE id=? AND user_id=? AND status='requested' AND start>?", "declined")
+	a.decide(w, r, "UPDATE bookings SET status='declined' WHERE id=? AND user_id=? AND status='requested' AND verified=1 AND start>?", "declined")
 }
 
 // decide applies the host's answer to one of their upcoming requests.

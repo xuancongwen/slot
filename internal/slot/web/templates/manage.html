@@ -1,8 +1,24 @@
 {{define "manage"}}{{template "head" .}}
 <main class="narrow">
-  <section class="card manage-card" {{if or (eq .Booking.Status "pending") (eq .Booking.Status "cancel_pending")}}data-pending="true"{{end}}>
+  <section class="card manage-card" {{if and .Booking.Verified (or (eq .Booking.Status "pending") (eq .Booking.Status "cancel_pending"))}}data-pending="true"{{end}}>
     <span class="eyebrow">BOOKING WITH {{.User.Name}}</span>
-    {{if eq .Booking.Status "confirmed"}}
+    {{if and (not .Booking.Verified) (eq .Booking.Status "cancelled")}}
+    <h1>Booking<br>released</h1>
+    <p>This time was released before the booking was confirmed by email. You can book again from {{.User.Name}}’s booking page.</p>
+    {{else if .ConfirmCode}}
+    <div class="confirmation-mark pending">◷</div>
+    <h1>Confirm your<br>booking</h1>
+    <p>Confirm to {{if eq .Booking.Status "requested"}}send your request to {{.User.Name}}{{else}}book this time. Google will then send you a calendar invitation{{end}}.</p>
+    <form method="post" action="/manage/{{.Booking.ManageToken}}/confirm">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <input type="hidden" name="code" value="{{.ConfirmCode}}">
+      <button class="button full">Confirm booking</button>
+    </form>
+    {{else if not .Booking.Verified}}
+    <div class="confirmation-mark pending">✉</div>
+    <h1>Check your<br>email</h1>
+    <p>We sent a confirmation link to {{.Booking.GuestEmail}}. This time is held for you until {{dateTime .Booking.HoldExpires (guestZone .Booking)}}; if it isn’t confirmed by then, it’s released.</p>
+    {{else if eq .Booking.Status "confirmed"}}
     <div class="confirmation-mark">✓</div>
     <h1>Booking<br>confirmed</h1>
     <p>Google has accepted your booking and requested delivery of your invitation.</p>
@@ -35,7 +51,7 @@
     {{if eq .Booking.Status "confirmed"}}
     <a class="button full" href="/manage/{{.Booking.ManageToken}}/event.ics">Download calendar event</a>
     {{end}}
-    {{if or (eq .Booking.Status "pending") (eq .Booking.Status "cancel_pending")}}
+    {{if and .Booking.Verified (or (eq .Booking.Status "pending") (eq .Booking.Status "cancel_pending"))}}
     <a class="button secondary full" href="/manage/{{.Booking.ManageToken}}">Refresh status</a>
     {{end}}
     {{if or (eq .Booking.Status "confirmed") (eq .Booking.Status "pending")}}

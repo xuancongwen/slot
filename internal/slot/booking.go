@@ -281,6 +281,10 @@ func (a *App) book(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, http.StatusBadRequest, "Enter your name and a valid email address.")
 		return
 	}
+	if a.disposableEmail(email) {
+		a.fail(w, r, http.StatusBadRequest, "Use an email address you keep. Disposable inboxes can’t book.")
+		return
+	}
 	reason := strings.TrimSpace(r.PostForm.Get("reason"))
 	if len(reason) > 1000 {
 		a.fail(w, r, http.StatusBadRequest, "Keep the reason for meeting to 1000 characters.")
@@ -297,6 +301,17 @@ func (a *App) book(w http.ResponseWriter, r *http.Request) {
 	} else if !errors.Is(e, sql.ErrNoRows) {
 		a.internal(w, r, e)
 		return
+	}
+	if a.mail != nil {
+		var unconfirmed int
+		if e = a.db.QueryRowContext(r.Context(), "SELECT count(*) FROM bookings WHERE verified=0 AND guest_email=? COLLATE NOCASE AND created>?", email, time.Now().Add(-24*time.Hour).Unix()).Scan(&unconfirmed); e != nil {
+			a.internal(w, r, e)
+			return
+		}
+		if unconfirmed >= maxUnconfirmed {
+			a.fail(w, r, http.StatusTooManyRequests, "This address has too many unconfirmed bookings today. Confirm one from your email, or try again tomorrow.")
+			return
+		}
 	}
 	guestTZ := r.PostForm.Get("tz")
 	if !validTimezone(guestTZ) {
@@ -321,7 +336,7 @@ func (a *App) book(w http.ResponseWriter, r *http.Request) {
 	if t.Approval {
 		status = "requested"
 	}
-	b := Booking{ID: id, UserID: u.ID, CalendarID: u.WriteCalendar.Int64, GuestName: name, GuestEmail: email, Start: start, End: start + int64(t.Duration*60), BlockStart: start - int64(t.Buffer*60), BlockEnd: start + int64((t.Duration+t.Buffer)*60), Title: t.Name + ": " + name + " / " + u.Name, Location: location, Meet: meet, Timezone: t.Timezone, GuestTimezone: guestTZ, Reason: reason, ManageToken: token, Status: status, Created: time.Now().Unix()}
+	b := Booking{ID: id, UserID: u.ID, CalendarID: u.WriteCalendar.Int64, GuestName: name, GuestEmail: email, Start: start, End: start + int64(t.Duration*60), BlockStart: start - int64(t.Buffer*60), BlockEnd: start + int64((t.Duration+t.Buffer)*60), Title: t.Name + ": " + name + " / " + u.Name, Location: location, Meet: meet, Timezone: t.Timezone, GuestTimezone: guestTZ, Reason: reason, ManageToken: token, Status: status, Created: time.Now().Unix(), Verified: a.mail == nil}
 	if e = a.reserve(r.Context(), b); e != nil {
 		if existing, err := a.getBooking(r.Context(), token); err == nil {
 			http.Redirect(w, r, "/manage/"+existing.ManageToken, http.StatusSeeOther)
@@ -333,6 +348,16 @@ func (a *App) book(w http.ResponseWriter, r *http.Request) {
 			a.internal(w, r, e)
 		}
 		return
+	}
+	if !b.Verified {
+		if e = a.sendConfirmation(r.Context(), u, t, b); e != nil {
+			slog.Warn("confirmation email not sent", "booking", b.ID, "error", e)
+			if _, err := a.db.ExecContext(r.Context(), "DELETE FROM bookings WHERE id=?", b.ID); err != nil {
+				slog.Error("release booking without confirmation email", "booking", b.ID, "error", err)
+			}
+			a.fail(w, r, http.StatusBadGateway, "We couldn’t send a confirmation email to that address. Check it and try again.")
+			return
+		}
 	}
 	// Respond quickly. The durable worker confirms with Google and sends its invitation.
 	http.Redirect(w, r, "/manage/"+token, http.StatusSeeOther)

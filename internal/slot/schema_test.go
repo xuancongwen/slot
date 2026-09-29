@@ -20,6 +20,7 @@ var downgrades = map[int]string{
 	4: "ALTER TABLE locations DROP COLUMN position",
 	5: "ALTER TABLE bookings DROP COLUMN reason",
 	6: "ALTER TABLE bookings DROP COLUMN checked",
+	8: "ALTER TABLE bookings DROP COLUMN verified",
 	// Restores the version 7 status list. schema.sql recreates the trigger and indexes.
 	7: `ALTER TABLE meeting_types DROP COLUMN approval;
 CREATE TABLE bookings_old (
