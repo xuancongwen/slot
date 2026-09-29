@@ -41,6 +41,9 @@
       <label>Email address
         <input name="email" type="email" autocomplete="email" maxlength="254" required placeholder="you@example.com">
       </label>
+      <label>Reason for meeting <span class="optional">optional</span>
+        <textarea name="reason" maxlength="1000" rows="3" placeholder="What would you like to discuss?"></textarea>
+      </label>
       <fieldset>
         <legend>Where to meet</legend>
         {{range .Locations}}
@@ -54,7 +57,7 @@
         <label>Leave this empty<input name="website" tabindex="-1" autocomplete="off"></label>
       </div>
       <button class="full">Book this time</button>
-      <p class="hint">Your host will receive your name and email. Google will send a calendar invitation once the booking is confirmed.</p>
+      <p class="hint">Your host will receive your name, email, and reason for meeting. Google will send a calendar invitation once the booking is confirmed.</p>
     </form>
     {{else if .Weeks}}
     <h2>Choose a day & time</h2>

@@ -40,7 +40,7 @@ a:hover {
   text-decoration-thickness: 2px;
 }
 
-button, input, select {
+button, input, select, textarea {
   font: inherit;
 }
 
@@ -64,7 +64,7 @@ button:hover, .button:hover {
   filter: brightness(1.1);
 }
 
-button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline: 3px solid #8dba58;
   outline-offset: 3px;
 }
@@ -239,7 +239,7 @@ label {
   margin-bottom: 19px;
 }
 
-input:not([type=checkbox]), select {
+input:not([type=checkbox]), select, textarea {
   width: 100%;
   border: 1px solid #cdd3c9;
   background: #fffefb;
@@ -251,12 +251,21 @@ input:not([type=checkbox]), select {
   min-width: 0;
 }
 
-input::placeholder {
+input::placeholder, textarea::placeholder {
   color: #97a095;
 }
 
 select {
   font-size: 13px;
+}
+
+textarea {
+  resize: vertical;
+}
+
+.reason {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 
 .form-grid {

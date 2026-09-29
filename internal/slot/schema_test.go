@@ -1,6 +1,7 @@
 package slot
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -16,7 +17,7 @@ func TestSchemaForeignKeys(t *testing.T) {
 func TestUpgradeFromVersion4(t *testing.T) {
 	a, _ := testApp(t)
 	seedHost(t, a, "alex")
-	for _, q := range []string{"ALTER TABLE locations DROP COLUMN position", "PRAGMA user_version=4"} {
+	for _, q := range []string{"ALTER TABLE locations DROP COLUMN position", "ALTER TABLE bookings DROP COLUMN reason", "PRAGMA user_version=4"} {
 		if _, e := a.db.Exec(q); e != nil {
 			t.Fatal(e)
 		}
@@ -31,6 +32,25 @@ func TestUpgradeFromVersion4(t *testing.T) {
 	b.db.QueryRow("PRAGMA user_version").Scan(&version)
 	if e = b.db.QueryRow("SELECT count(*) FROM locations WHERE position=0").Scan(&n); e != nil || version != schemaVersion || n != 2 {
 		t.Fatalf("version %d, rows %d, error %v", version, n, e)
+	}
+}
+
+func TestUpgradeFromVersion5(t *testing.T) {
+	a, _ := testApp(t)
+	u := seedHost(t, a, "alex")
+	for _, q := range []string{"ALTER TABLE bookings DROP COLUMN reason", "PRAGMA user_version=5"} {
+		if _, e := a.db.Exec(q); e != nil {
+			t.Fatal(e)
+		}
+	}
+	a.db.Close()
+	b, e := New(a.cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer b.db.Close()
+	if e = b.reserve(context.Background(), bookingFor(u, tomorrow())); e != nil {
+		t.Fatal(e)
 	}
 }
 

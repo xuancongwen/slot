@@ -23,6 +23,7 @@
       {{if isLink .Booking.Location}}<a href="{{.Booking.Location}}" rel="noopener">{{.Booking.Location}}</a>{{else if .Booking.Location}}<span>{{.Booking.Location}}</span>{{else if .Booking.Meet}}<span>Google Meet link on its way with the invitation</span>{{end}}
     </div>
     <p class="hint">{{.Booking.GuestName}} · {{.Booking.GuestEmail}}</p>
+    {{if .Booking.Reason}}<p class="reason">{{.Booking.Reason}}</p>{{end}}
 
     {{if eq .Booking.Status "confirmed"}}
     <a class="button full" href="/manage/{{.Booking.ManageToken}}/event.ics">Download calendar event</a>

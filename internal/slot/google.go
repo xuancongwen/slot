@@ -213,7 +213,11 @@ func (g *Google) Insert(ctx context.Context, c Calendar, b Booking) (string, err
 	}
 	path := "/calendars/" + url.PathEscape(c.GoogleID) + "/events"
 	// Caller-supplied Google event IDs make retries safe after a timeout or process restart.
-	body := map[string]any{"id": b.ID, "summary": b.Title, "location": b.Location, "description": "Manage or cancel: " + g.app.cfg.PublicURL + "/manage/" + b.ManageToken, "start": map[string]string{"dateTime": time.Unix(b.Start, 0).UTC().Format(time.RFC3339), "timeZone": b.Timezone}, "end": map[string]string{"dateTime": time.Unix(b.End, 0).UTC().Format(time.RFC3339), "timeZone": b.Timezone}, "attendees": []map[string]string{{"email": b.GuestEmail, "displayName": b.GuestName}}, "extendedProperties": map[string]any{"private": map[string]string{"slotBooking": b.ID}}, "guestsCanModify": false}
+	description := "Manage or cancel: " + g.app.cfg.PublicURL + "/manage/" + b.ManageToken
+	if b.Reason != "" {
+		description = b.Reason + "\n\n" + description
+	}
+	body := map[string]any{"id": b.ID, "summary": b.Title, "location": b.Location, "description": description, "start": map[string]string{"dateTime": time.Unix(b.Start, 0).UTC().Format(time.RFC3339), "timeZone": b.Timezone}, "end": map[string]string{"dateTime": time.Unix(b.End, 0).UTC().Format(time.RFC3339), "timeZone": b.Timezone}, "attendees": []map[string]string{{"email": b.GuestEmail, "displayName": b.GuestName}}, "extendedProperties": map[string]any{"private": map[string]string{"slotBooking": b.ID}}, "guestsCanModify": false}
 	query := "?sendUpdates=all"
 	if b.Meet {
 		// Reusing the booking ID as the request ID keeps a retried insert to one Meet.
