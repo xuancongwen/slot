@@ -1,6 +1,6 @@
 # Slot
 
-A small Google Calendar booking app for a home lab. One Go process, one SQLite database, two HTTP listeners. Server-rendered HTML, local CSS, and about 2 KB of optional JavaScript. No Node runtime, Redis, or mail server (email goes through any SMTP provider you choose); the only external asset is an analytics script on the guest booking page.
+A small Google Calendar booking app for a home lab. One Go process, one SQLite database, two HTTP listeners. Server-rendered HTML, local CSS, and about 2 KB of optional JavaScript. No Node runtime, Redis, or mail server; the only external asset is an analytics script on the guest booking page.
 
 > **Status: not yet functional.** Slot is a work in progress and is not ready for use. The features below describe the intended first version, not a working release.
 
@@ -12,7 +12,6 @@ A small Google Calendar booking app for a home lab. One Go process, one SQLite d
 - A public booking link for each user: `/b/your-name`, listing their meeting types at `/b/your-name/type`, or showing the calendar directly when there is only one. No public user directory. With `SINGLE_HOST_URL_NAME` set, that host's page is the site root instead.
 - Multiple meeting types per user, each with its own length, IANA timezone, weekly availability, buffers, minimum notice, and booking horizon. A per-type timezone lets you publish a schedule for a trip alongside your usual one.
 - Optional host approval per meeting type. A request holds its time, but Google invites the guest only after the host approves it from the admin booking list. Because the booking page accepts any email address, this stops strangers from using your calendar to send invitations to people who never asked for them.
-- Email confirmation for guests, when SMTP is configured. A booking holds its time for 30 minutes, but reaches Google and the host only after the guest opens the emailed link and confirms, so nobody can have your calendar invite an address they don't control. Each address gets at most three confirmation emails a day.
 - Disposable inboxes, such as mailinator.com and their subdomains, cannot book. The list is [disposable-email-domains](https://github.com/disposable-email-domains/disposable-email-domains) (CC0), embedded at build time; refresh it with `make disposable-domains`.
 - Full days off per user.
 - Locations in each user's profile: Google Meet (a fresh link per booking, created by Google) plus any links or addresses, such as a Zoom room. Guests pick one, the default preselected, or enter their own.
@@ -130,10 +129,6 @@ References: [Google web-server OAuth](https://developers.google.com/identity/pro
 | `SINGLE_HOST_URL_NAME` | unset | URL name of the only host, e.g. `sam`. Their booking page is served at the public root, and registration accepts only that name, once. |
 | `ANALYTICS_SCRIPT_URL` | unset | Optional page view tracker loaded on booking pages, e.g. a self-hosted Umami or Plausible `script.js`. Its origin is added to the booking pages' `script-src` and `connect-src` security policy. |
 | `ANALYTICS_SCRIPT_ATTRS` | unset | Space-separated `data-*` attributes for that script tag, e.g. `data-website-id=abc123` (Umami) or `data-domain=book.example.com` (Plausible). |
-| `SMTP_HOST` | unset | SMTP submission server, e.g. `smtp.gmail.com`. Setting it turns on guest email confirmation; unset, guests' addresses are not verified and a warning is logged at startup. |
-| `SMTP_PORT` | `587` | `587` uses STARTTLS, `465` implicit TLS. Mail is never sent without TLS. |
-| `SMTP_USERNAME`, `SMTP_PASSWORD` | unset | SMTP credentials; set both or neither. For Gmail, an [app password](https://myaccount.google.com/apppasswords), which requires 2-Step Verification. |
-| `MAIL_FROM` | unset | Sender, e.g. `Slot <you@gmail.com>`. Required with `SMTP_HOST`. Most providers require it to be an address or domain you have verified with them. |
 | `PUBLIC_PORT`, `ADMIN_PORT` | `8080`, `8081` | Compose host-port mappings only; `ADMIN_PORT` matters only for a separate admin. Update origins and Google redirects if changed. |
 
 The standalone binary does **not** read `.env`. Export variables in the shell or use your service manager's environment file. Compose reads `.env` for the interpolation shown in `compose.yaml`.
@@ -146,7 +141,7 @@ The app does not trust `X-Forwarded-For`. Its in-process rate limit therefore gr
 
 1. Slot generation follows the meeting type's timezone and weekly hours. Google is queried for current busy intervals across selected calendars, in batches of at most 50 per account.
 2. Availability is checked again on submission. Errors or missing Google calendar results close availability rather than treating the calendar as empty.
-3. An SQLite trigger reserves the interval atomically. Requests awaiting approval, bookings awaiting email confirmation (for 30 minutes), pending bookings, and cancelling bookings block time too. Hosts using the same Google destination calendar cannot reserve overlapping times through Slot.
+3. An SQLite trigger reserves the interval atomically. Requests awaiting approval, pending bookings, and cancelling bookings block time too. Hosts using the same Google destination calendar cannot reserve overlapping times through Slot.
 4. A background worker runs every 15 seconds and inserts the Google event using a stable ID. A timed-out write can be retried without intentionally creating a second event. The signed form ticket makes duplicate form submissions return the same booking.
 5. The booking is marked confirmed only after Google accepts it or an earlier insertion is verified. Google is asked to notify the guest. The confirmation page accurately describes pending states and refreshes while waiting.
 6. Cancellation is also durable: the slot is not released until Google confirms deletion or reports that the event is already absent.
@@ -166,7 +161,7 @@ Google Calendar does not offer an atomic “insert only if still free” operati
 - No account email verification, forgotten-password email flow, or site-wide super-admin. Protect registration through the private admin interface and optional code.
 - Reconnect/refresh Google accounts from the admin page. This version does not include account deletion or a disconnect UI; Google permissions can be revoked from the Google account, which causes affected booking operations to fail closed until reconnected or reconfigured.
 - Changes made in Google reach Slot within about five minutes, so a slot freed or moved there can briefly still look taken, or free, on the booking page. Edits to anything other than the time, such as the title or location, are not copied back.
-- Invitations are delivered by Google, subject to its policies, quotas, and the guest's invitation settings. Slot's only email of its own is the booking confirmation link, sent through your SMTP provider; it does not guarantee delivery. If sending fails, the guest is told at once and the time is released.
+- Invitations are delivered by Google, subject to its policies, quotas, and the guest's invitation settings. Slot does not run SMTP or guarantee email delivery.
 - Run **one app instance per database**. SQLite and the worker are designed for a small single-server deployment; do not run replicas against a shared network-mounted database.
 
 ## Data and backups
@@ -187,12 +182,12 @@ make bench   # slot-generation benchmark
 make fmt     # format the code
 ```
 
-Tests cover concurrent reservations, shared destination conflicts, DST gaps/repeated hours, host isolation, public/admin route separation (combined and separate), configuration validation, CSRF rejection, signed ticket integrity, registration/login, single-host registration and root page, restart recovery, encrypted token refresh, Google API batching/errors, idempotent insertion, cancellation retries, guest email confirmation and its time holds and limits, disposable-domain rejection, SMTP over TLS against a local fake server, and the end-to-end HTTP booking flow with a fake Calendar service.
+Tests cover concurrent reservations, shared destination conflicts, DST gaps/repeated hours, host isolation, public/admin route separation (combined and separate), configuration validation, CSRF rejection, signed ticket integrity, registration/login, single-host registration and root page, restart recovery, encrypted token refresh, Google API batching/errors, idempotent insertion, cancellation retries, disposable-domain rejection, and the end-to-end HTTP booking flow with a fake Calendar service.
 
 The real Google consent/invitation flow requires your OAuth client and Google accounts. Automated tests use local HTTP doubles; they do not connect to anyone's calendar.
 
 Layout:
 
 - `cmd/slot/`: the entry point; reads configuration and runs the server.
-- `internal/slot/`: the application, one file per concern: `app.go` (startup, keys, `Run`), `config.go`, `schema.go` and `schema.sql` (storage and upgrades), `store.go` (records and queries), `availability.go` (slot generation), `google.go` and `oauth.go` (Calendar API and connecting accounts), `worker.go` (durable writes), `confirm.go` and `mail.go` (guest email confirmation over SMTP), `middleware.go` and `auth.go` (headers, CSRF, rate limits, sessions), and the HTTP handlers in `routes.go`, `dashboard.go`, `meeting_types.go`, `locations.go`, `booking.go`, and `manage.go`. Tests sit beside the file they cover.
+- `internal/slot/`: the application, one file per concern: `app.go` (startup, keys, `Run`), `config.go`, `schema.go` and `schema.sql` (storage and upgrades), `store.go` (records and queries), `availability.go` (slot generation), `google.go` and `oauth.go` (Calendar API and connecting accounts), `worker.go` (durable writes), `middleware.go` and `auth.go` (headers, CSRF, rate limits, sessions), and the HTTP handlers in `routes.go`, `dashboard.go`, `meeting_types.go`, `locations.go`, `booking.go`, and `manage.go`. Tests sit beside the file they cover.
 - `internal/slot/web/`: embedded templates and static assets.

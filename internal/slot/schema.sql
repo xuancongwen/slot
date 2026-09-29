@@ -61,9 +61,6 @@ CREATE TABLE IF NOT EXISTS bookings (
  next_attempt INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',
  -- When a confirmed booking's Google event was last compared with Slot's copy.
  checked INTEGER NOT NULL DEFAULT 0,
- -- 0 until the guest confirms from the emailed link. Unverified bookings hold their time
- -- briefly but never reach Google or the host's list.
- verified INTEGER NOT NULL DEFAULT 1,
  CHECK(end > start), CHECK(block_end > block_start)
 );
 CREATE INDEX IF NOT EXISTS bookings_host_time ON bookings(user_id,block_start,block_end);

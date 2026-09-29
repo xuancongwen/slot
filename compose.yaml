@@ -16,11 +16,6 @@ services:
       SINGLE_HOST_URL_NAME: ${SINGLE_HOST_URL_NAME:-}
       ANALYTICS_SCRIPT_URL: ${ANALYTICS_SCRIPT_URL:-}
       ANALYTICS_SCRIPT_ATTRS: ${ANALYTICS_SCRIPT_ATTRS:-}
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USERNAME: ${SMTP_USERNAME:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      MAIL_FROM: ${MAIL_FROM:-}
     volumes:
       - slot-data:/data
     read_only: true

@@ -18,7 +18,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/mail"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,8 +48,6 @@ type App struct {
 	templates  *template.Template
 	timezones  []string
 	google     CalendarProvider
-	// mail is nil when SMTP is not configured; guests' addresses then go unverified.
-	mail Mailer
 	// disposable holds throwaway inbox domains, such as mailinator.com, that cannot book.
 	disposable map[string]bool
 	oauth      *oauth2.Config
@@ -174,14 +171,6 @@ func New(c Config) (*App, error) {
 	for _, d := range strings.Fields(string(domains)) {
 		a.disposable[d] = true
 	}
-	if c.SMTPHost != "" {
-		from, err := mail.ParseAddress(c.MailFrom)
-		if err != nil {
-			db.Close()
-			return nil, fmt.Errorf("parsing MAIL_FROM: %w", err)
-		}
-		a.mail = &SMTP{Host: c.SMTPHost, Port: c.SMTPPort, Username: c.SMTPUsername, Password: c.SMTPPassword, From: from}
-	}
 	return a, nil
 }
 
@@ -225,9 +214,6 @@ func (a *App) Run(ctx context.Context) error {
 		}()
 	}
 	slog.Info("Slot ready", "public", a.cfg.PublicURL, "admin", a.cfg.AdminURL+a.adminPath+"/")
-	if a.mail == nil {
-		slog.Warn("SMTP_HOST is not set, so guests' email addresses are not verified before Google invites them")
-	}
 	wg.Add(1)
 	go func() { defer wg.Done(); a.worker(ctx) }()
 	<-ctx.Done()

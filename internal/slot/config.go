@@ -2,10 +2,8 @@ package slot
 
 import (
 	"errors"
-	"net/mail"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 )
 
@@ -25,9 +23,6 @@ type Config struct {
 	// name/value pairs its script tag needs, in order.
 	AnalyticsScript string
 	AnalyticsAttrs  [][2]string
-	// SMTPHost enables email: guests then confirm their address before a booking
-	// reaches the calendar. MailFrom is the sender, such as "Slot <book@example.com>".
-	SMTPHost, SMTPPort, SMTPUsername, SMTPPassword, MailFrom string
 }
 
 func env(key, fallback string) string {
@@ -67,21 +62,6 @@ func LoadConfig() (Config, error) {
 	// Otherwise whoever reaches the admin first becomes the only host.
 	if c.SingleHost != "" && c.RegistrationCode == "" {
 		return c, errors.New("SINGLE_HOST_URL_NAME requires REGISTRATION_CODE")
-	}
-	c.SMTPHost, c.SMTPPort, c.SMTPUsername, c.SMTPPassword, c.MailFrom = os.Getenv("SMTP_HOST"), env("SMTP_PORT", "587"), os.Getenv("SMTP_USERNAME"), os.Getenv("SMTP_PASSWORD"), os.Getenv("MAIL_FROM")
-	if c.SMTPHost == "" && (c.SMTPUsername != "" || c.SMTPPassword != "" || c.MailFrom != "") {
-		return c, errors.New("SMTP_USERNAME, SMTP_PASSWORD, and MAIL_FROM require SMTP_HOST")
-	}
-	if c.SMTPHost != "" {
-		if from, err := mail.ParseAddress(c.MailFrom); err != nil || !validEmail(from.Address) {
-			return c, errors.New("MAIL_FROM must be an email address, such as Slot <book@example.com>")
-		}
-		if (c.SMTPUsername == "") != (c.SMTPPassword == "") {
-			return c, errors.New("set both SMTP_USERNAME and SMTP_PASSWORD, or neither")
-		}
-		if port, err := strconv.Atoi(c.SMTPPort); err != nil || port < 1 || port > 65535 {
-			return c, errors.New("SMTP_PORT must be a port number, usually 587 or 465")
-		}
 	}
 	c.AnalyticsScript = os.Getenv("ANALYTICS_SCRIPT_URL")
 	attrs := strings.Fields(os.Getenv("ANALYTICS_SCRIPT_ATTRS"))

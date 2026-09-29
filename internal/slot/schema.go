@@ -8,11 +8,7 @@ import (
 // Bump schemaVersion whenever schema.sql changes shape, and add the step that brings
 // the previous version's database up to it. Databases older than the first step
 // predate migrations and must start fresh.
-const schemaVersion = 9
-
-// bookingColumnsV7 lists the version 7 bookings columns explicitly, since columns added
-// by ALTER TABLE sit at the end of older tables rather than in schema.sql's order.
-const bookingColumnsV7 = "id,user_id,calendar_id,guest_name,guest_email,start,end,block_start,block_end,title,location,meet,timezone,guest_timezone,reason,manage_token,status,created,attempts,next_attempt,last_error,checked"
+const schemaVersion = 8
 
 func migrate(db *sql.DB) error {
 	steps := map[int]string{
@@ -36,10 +32,9 @@ CREATE TABLE bookings_new (
  checked INTEGER NOT NULL DEFAULT 0,
  CHECK(end > start), CHECK(block_end > block_start)
 );
-INSERT INTO bookings_new(` + bookingColumnsV7 + `) SELECT ` + bookingColumnsV7 + ` FROM bookings;
+INSERT INTO bookings_new(` + bookingColumns + `,checked) SELECT ` + bookingColumns + `,checked FROM bookings;
 DROP TABLE bookings;
 ALTER TABLE bookings_new RENAME TO bookings;`,
-		8: "ALTER TABLE bookings ADD COLUMN verified INTEGER NOT NULL DEFAULT 1;",
 	}
 	var version, tables int
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {

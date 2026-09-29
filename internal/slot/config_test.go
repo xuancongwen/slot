@@ -25,15 +25,10 @@ func TestLoadConfig(t *testing.T) {
 		{name: "old single host name", env: map[string]string{"SINGLE_HOST": "sam"}, wantErr: "renamed to SINGLE_HOST_URL_NAME"},
 		{name: "admin URL without separate hosting", env: map[string]string{"ADMIN_URL": "https://admin.example.com"}, wantErr: "HOST_ADMIN_SEPARATELY"},
 		{name: "separate admin", env: map[string]string{"HOST_ADMIN_SEPARATELY": "true", "ADMIN_URL": "https://admin.example.com"}, check: func(c Config) bool { return c.HostAdminSeparately && c.AdminURL == "https://admin.example.com" }},
-		{name: "mail", env: map[string]string{"SMTP_HOST": "smtp.gmail.com", "SMTP_USERNAME": "me@gmail.com", "SMTP_PASSWORD": "app-password", "MAIL_FROM": "Slot <me@gmail.com>"}, check: func(c Config) bool { return c.SMTPHost == "smtp.gmail.com" && c.SMTPPort == "587" }},
-		{name: "mail settings without a server", env: map[string]string{"MAIL_FROM": "me@gmail.com"}, wantErr: "require SMTP_HOST"},
-		{name: "mail without a sender", env: map[string]string{"SMTP_HOST": "smtp.gmail.com"}, wantErr: "MAIL_FROM"},
-		{name: "mail username without password", env: map[string]string{"SMTP_HOST": "smtp.gmail.com", "SMTP_USERNAME": "me@gmail.com", "MAIL_FROM": "me@gmail.com"}, wantErr: "SMTP_PASSWORD"},
-		{name: "mail port not a number", env: map[string]string{"SMTP_HOST": "smtp.gmail.com", "SMTP_PORT": "smtps", "MAIL_FROM": "me@gmail.com"}, wantErr: "SMTP_PORT"},
 		{name: "separate admin on the public origin", env: map[string]string{"HOST_ADMIN_SEPARATELY": "true", "PUBLIC_URL": "https://book.example.com", "ADMIN_URL": "https://book.example.com"}, wantErr: "must differ"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, key := range []string{"SINGLE_HOST", "SINGLE_HOST_URL_NAME", "REGISTRATION_CODE", "HOST_ADMIN_SEPARATELY", "PUBLIC_URL", "ADMIN_URL", "ANALYTICS_SCRIPT_URL", "ANALYTICS_SCRIPT_ATTRS", "SMTP_HOST", "SMTP_PORT", "SMTP_USERNAME", "SMTP_PASSWORD", "MAIL_FROM"} {
+			for _, key := range []string{"SINGLE_HOST", "SINGLE_HOST_URL_NAME", "REGISTRATION_CODE", "HOST_ADMIN_SEPARATELY", "PUBLIC_URL", "ADMIN_URL", "ANALYTICS_SCRIPT_URL", "ANALYTICS_SCRIPT_ATTRS"} {
 				t.Setenv(key, tc.env[key])
 			}
 			c, e := LoadConfig()
