@@ -141,6 +141,7 @@ The app does not trust `X-Forwarded-For`. Its in-process rate limit therefore gr
 4. A background worker runs every 15 seconds and inserts the Google event using a stable ID. A timed-out write can be retried without intentionally creating a second event. The signed form ticket makes duplicate form submissions return the same booking.
 5. The booking is marked confirmed only after Google accepts it or an earlier insertion is verified. Google is asked to notify the guest. The confirmation page accurately describes pending states and refreshes while waiting.
 6. Cancellation is also durable: the slot is not released until Google confirms deletion or reports that the event is already absent.
+7. Every five minutes until it ends, each confirmed booking is compared with its Google event. Deleting the event in Google cancels the booking. Moving it moves the booking and its buffers. If the guest declines, Slot removes the event and frees the time. When Google can't be reached, nothing changes and the admin booking list shows the error.
 
 Google failures back off up to one hour. The admin booking list shows sync errors and offers **Retry sync** and **Cancel**. A pending reservation does not silently expire: a timeout may mean Google already created the event. Reconnect the account if its authorization has expired.
 
@@ -155,7 +156,7 @@ Google Calendar does not offer an atomic “insert only if still free” operati
 - Reschedule by cancelling and booking again. No payments, round-robin teams, reminder service, or per-booking Zoom meetings; a Zoom location is a fixed room link.
 - No account email verification, forgotten-password email flow, or site-wide super-admin. Protect registration through the private admin interface and optional code.
 - Reconnect/refresh Google accounts from the admin page. This version does not include account deletion or a disconnect UI; Google permissions can be revoked from the Google account, which causes affected booking operations to fail closed until reconnected or reconfigured.
-- Google free/busy is live, but external event edits/deletions do not rewrite Slot's booking records. Manage Slot bookings in Slot. If someone deletes a Slot event directly in Google, cancel its record in Slot to release the local reservation.
+- Changes made in Google reach Slot within about five minutes, so a slot freed or moved there can briefly still look taken, or free, on the booking page. Edits to anything other than the time, such as the title or location, are not copied back.
 - Invitations are delivered by Google, subject to its policies, quotas, and the guest's invitation settings. Slot does not run SMTP or guarantee email delivery.
 - Run **one app instance per database**. SQLite and the worker are designed for a small single-server deployment; do not run replicas against a shared network-mounted database.
 

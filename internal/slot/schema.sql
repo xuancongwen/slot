@@ -57,6 +57,8 @@ CREATE TABLE IF NOT EXISTS bookings (
  status TEXT NOT NULL CHECK(status IN ('pending','confirmed','cancel_pending','cancelled','failed')),
  created INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
  next_attempt INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',
+ -- When a confirmed booking's Google event was last compared with Slot's copy.
+ checked INTEGER NOT NULL DEFAULT 0,
  CHECK(end > start), CHECK(block_end > block_start)
 );
 CREATE INDEX IF NOT EXISTS bookings_host_time ON bookings(user_id,block_start,block_end);
