@@ -141,7 +141,7 @@ func (a *App) showBooking(w http.ResponseWriter, r *http.Request, u User, t Meet
 		return
 	}
 	monthEnd := monthStart.AddDate(0, 1, 0)
-	p := Page{Title: t.Name + " with " + u.Name, User: u, MeetingType: t, Date: date, BookingURL: "/b/" + u.Slug + "/" + t.Slug, ViewURL: viewURL, GuestTimezone: guestTZ, DetectTimezone: detect, Timezones: a.timezones, Month: month, MonthLabel: monthStart.Format("January 2006")}
+	p := Page{Title: t.Name + " with " + u.Name, User: u, MeetingType: t, Date: date, BookingURL: "/b/" + u.Slug + "/" + t.Slug, ViewURL: viewURL, GuestTimezone: guestTZ, DetectTimezone: detect, Analytics: true, Timezones: a.timezones, Month: month, MonthLabel: monthStart.Format("January 2006")}
 	if month > minDate[:7] {
 		p.PrevMonth = monthStart.AddDate(0, -1, 0).Format("2006-01")
 	}

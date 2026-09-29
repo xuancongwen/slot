@@ -33,7 +33,16 @@ type Page struct {
 	// ViewURL is where the booking calendar is shown: /b/host/type, or /b/host
 	// or / when that is the only type. Date and time links stay on it.
 	ViewURL string
+
+	// Analytics loads the page view tracker, which the page's security policy
+	// must then allow.
+	Analytics bool
 }
+
+const (
+	analyticsOrigin = "https://analytics.samwen.com"
+	analyticsCSP    = "default-src 'none'; style-src 'self'; img-src 'self'; script-src 'self' " + analyticsOrigin + "; connect-src " + analyticsOrigin + "; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+)
 
 func (a *App) render(w http.ResponseWriter, r *http.Request, name string, p Page, status int) {
 	p.CSRF = a.csrfToken(w, r, p.Admin)
@@ -42,6 +51,9 @@ func (a *App) render(w http.ResponseWriter, r *http.Request, name string, p Page
 		slog.Error("render", "template", name, "error", e)
 		http.Error(w, "Could not render page", http.StatusInternalServerError)
 		return
+	}
+	if p.Analytics {
+		w.Header().Set("Content-Security-Policy", analyticsCSP)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
