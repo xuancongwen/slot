@@ -2,9 +2,7 @@
 
 A small Google Calendar booking app for a home lab. One Go process, one SQLite database, two HTTP listeners. Server-rendered HTML and local CSS, with a small script that loads pages and forms in place so navigation feels like an app. Everything still works without JavaScript. No Node runtime, Redis, or mail server; the only external asset is an analytics script on the guest booking page.
 
-> **Status: not yet functional.** Slot is a work in progress and is not ready for use. The features below describe the intended first version, not a working release.
-
-## First version
+## Features
 
 - Multiple independent scheduling users, registered through the admin at `/admin`.
 - Multiple Google accounts per user, with multiple calendars per account.
@@ -155,13 +153,12 @@ The buffer is applied on **each side** of a Slot booking. Two Slot meetings with
 
 Google Calendar does not offer an atomic “insert only if still free” operation. A manual Google event or another scheduling app can race the final free/busy check. Slot protects its own reservations; it cannot lock outside calendar writers. A selected calendar shared across different hosts can also change externally between reads.
 
-## Intentional first-pass limits
+## Limits
 
-- One daily working-hours interval per meeting type, and full-day exceptions (single dates or ranges) per host.
 - Guests pick a date on a month calendar and see times in their own timezone, detected by the browser and changeable on the page. Without JavaScript the page shows the meeting type's timezone. Calendar invitations display in the guest's own calendar timezone.
-- Reschedule by cancelling and booking again. No payments, round-robin teams, reminder service, or per-booking Zoom meetings; a Zoom location is a fixed room link.
-- No account email verification, forgotten-password email flow, or site-wide super-admin. Protect registration through the private admin interface and optional code.
-- Reconnect/refresh Google accounts from the admin page. This version does not include account deletion or a disconnect UI; Google permissions can be revoked from the Google account, which causes affected booking operations to fail closed until reconnected or reconfigured.
+- To reschedule, cancel and book again.
+- A forgotten host password cannot be reset by email. Protect registration through the private admin interface and optional code.
+- Reconnect or refresh Google accounts from the admin page. To disconnect one, revoke Slot's permissions from the Google account; affected booking operations then fail closed until it is reconnected or reconfigured.
 - Changes made in Google reach Slot within about five minutes, so a slot freed or moved there can briefly still look taken, or free, on the booking page. Edits to anything other than the time, such as the title or location, are not copied back.
 - Invitations are delivered by Google, subject to its policies, quotas, and the guest's invitation settings. Slot does not run SMTP or guarantee email delivery.
 - Run **one app instance per database**. SQLite and the worker are designed for a small single-server deployment; do not run replicas against a shared network-mounted database.
