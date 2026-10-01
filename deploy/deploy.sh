@@ -4,7 +4,7 @@
 #   deploy/deploy.sh root@slot.lan
 #
 # Without an argument, the target is SLOT_HOST from the environment, then from
-# deploy/.env (see deploy/.env.example), which git ignores.
+# deploy/deploy.env (see deploy/deploy.env.example), which git ignores.
 #
 # The database is backed up before each restart, and if the new build does not come
 # up healthy, the previous binary is restored.
@@ -14,12 +14,12 @@ cd "$(dirname "$0")/.."
 
 target=${1:-${SLOT_HOST:-}}
 # Read only the one setting, rather than sourcing the file and running whatever is in it.
-if [[ -z $target && -f deploy/.env ]]; then
-  target=$(sed -n 's/^SLOT_HOST=//p' deploy/.env | tail -n 1)
+if [[ -z $target && -f deploy/deploy.env ]]; then
+  target=$(sed -n 's/^SLOT_HOST=//p' deploy/deploy.env | tail -n 1)
   target=${target//[\"\']/}
 fi
 if [[ -z $target ]]; then
-  echo "Usage: $0 root@host (or set SLOT_HOST, in the environment or deploy/.env)" >&2
+  echo "Usage: $0 root@host (or set SLOT_HOST, in the environment or deploy/deploy.env)" >&2
   exit 2
 fi
 
