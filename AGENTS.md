@@ -9,6 +9,13 @@ Single source of truth for AI coding agents. `CLAUDE.md` and `GEMINI.md` defer t
 - Test: `make check` (gofmt check, vet, race tests); benchmarks: `make bench`
 - Run: `make run` (data in `./data`; config via env vars, see README), or `make up` for Docker Compose
 
+## Tracking
+- Trackstar is the project management tool: project `slot`, reached through the Trackstar MCP tools. Planned and finished work lives there, not in the README or TODO comments.
+- Before starting a task, find its story or create one (feature, bug, or chore), then set it to `started`.
+- Update the story as the work moves, not in one batch at the end: `finished` when the code and tests are done, `delivered` once the PR is merged. Leave `accepted` to the user.
+- Keep the description current with the PR link, what was tested, and anything left unverified.
+- When a feature is planned or discussed but not built now, record it as an icebox story with enough context to pick up later.
+
 <!-- agentinit:begin v0.1.0. Re-running agentinit replaces this block; edit outside the markers. -->
 ## Workflow
 - Ask when the task is ambiguous. Prefer small, reviewable changes.
