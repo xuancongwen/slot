@@ -1064,9 +1064,9 @@ a.day.selected {
 }
 
 footer {
-  max-width: 1220px;
+  max-width: 1320px;
   margin: 40px auto 0;
-  padding: 26px 40px;
+  padding: 26px 48px;
   border-top: 1px solid var(--line);
   display: flex;
   justify-content: space-between;
