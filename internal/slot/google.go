@@ -229,6 +229,7 @@ func (g *Google) Insert(ctx context.Context, c Calendar, b Booking) (string, err
 		description = b.Reason + "\n\n" + description
 	}
 	body := map[string]any{"id": b.ID, "summary": b.Title, "location": b.Location, "description": description, "start": map[string]string{"dateTime": time.Unix(b.Start, 0).UTC().Format(time.RFC3339), "timeZone": b.Timezone}, "end": map[string]string{"dateTime": time.Unix(b.End, 0).UTC().Format(time.RFC3339), "timeZone": b.Timezone}, "attendees": []map[string]string{{"email": b.GuestEmail, "displayName": b.GuestName}}, "extendedProperties": map[string]any{"private": map[string]string{"slotBooking": b.ID}}, "guestsCanModify": false}
+	body["reminders"] = map[string]any{"useDefault": false, "overrides": []map[string]any{{"method": "popup", "minutes": reminderMinutes(b)}}}
 	query := "?sendUpdates=all"
 	if b.Meet {
 		// Reusing the booking ID as the request ID keeps a retried insert to one Meet.
@@ -256,6 +257,22 @@ func (g *Google) Insert(ctx context.Context, c Calendar, b Booking) (string, err
 		return event.HangoutLink, nil
 	}
 	return created.HangoutLink, e
+}
+
+// reminderMinutes is how long before the start the event's reminder fires: an hour,
+// or for a meeting before 10:00, 21:00 the evening before, since a reminder before
+// 09:00 would likely go unseen.
+func reminderMinutes(b Booking) int {
+	loc, e := time.LoadLocation(b.Timezone)
+	if e != nil {
+		loc = time.UTC
+	}
+	start := time.Unix(b.Start, 0).In(loc)
+	if start.Hour() >= 10 {
+		return 60
+	}
+	evening := time.Date(start.Year(), start.Month(), start.Day()-1, 21, 0, 0, 0, loc)
+	return int(start.Sub(evening).Minutes())
 }
 
 func (g *Google) Delete(ctx context.Context, c Calendar, b Booking) error {
