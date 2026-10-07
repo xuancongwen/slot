@@ -57,7 +57,7 @@ func TestFailClosedAndDaysOff(t *testing.T) {
 	day := tomorrow()
 	day = time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, time.UTC)
 	f.busyErr = errors.New("Google unavailable")
-	if _, e := a.availability(context.Background(), u, mt, day, day.AddDate(0, 0, 1), time.Now()); e == nil {
+	if _, e := a.availability(context.Background(), u, mt, day, day.AddDate(0, 0, 1), time.Now(), Booking{}); e == nil {
 		t.Fatal("availability allowed on Google error")
 	}
 	f.busyErr = nil
@@ -65,7 +65,7 @@ func TestFailClosedAndDaysOff(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	s, e := a.availability(context.Background(), u, mt, day, day.AddDate(0, 0, 1), time.Now())
+	s, e := a.availability(context.Background(), u, mt, day, day.AddDate(0, 0, 1), time.Now(), Booking{})
 	if e != nil || len(s) > 0 {
 		t.Fatal("day off ignored")
 	}
@@ -81,7 +81,7 @@ func TestAvailabilitySpansGuestDay(t *testing.T) {
 	sgt := mustLoad(t, "Asia/Singapore")
 	d := time.Now().In(sgt).AddDate(0, 0, 3)
 	guestDay := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, sgt)
-	slots, e := a.availability(context.Background(), u, mt, guestDay, guestDay.AddDate(0, 0, 1), time.Now())
+	slots, e := a.availability(context.Background(), u, mt, guestDay, guestDay.AddDate(0, 0, 1), time.Now(), Booking{})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -94,7 +94,7 @@ func TestAvailabilitySpansGuestDay(t *testing.T) {
 		t.Fatalf("slots %v, want %v", got, want)
 	}
 	a.db.Exec("INSERT INTO blocks(user_id,first_day,last_day) VALUES(?,?,?)", u.ID, guestDay.Format("2006-01-02"), guestDay.Format("2006-01-02"))
-	if slots, _ = a.availability(context.Background(), u, mt, guestDay, guestDay.AddDate(0, 0, 1), time.Now()); len(slots) != 0 {
+	if slots, _ = a.availability(context.Background(), u, mt, guestDay, guestDay.AddDate(0, 0, 1), time.Now(), Booking{}); len(slots) != 0 {
 		t.Fatal("day off in the meeting type's timezone ignored")
 	}
 }
@@ -127,7 +127,7 @@ func TestDaysOffRange(t *testing.T) {
 	open := func(days int) bool {
 		t.Helper()
 		d := start.AddDate(0, 0, days)
-		s, e := a.availability(context.Background(), u, mt, d, d.AddDate(0, 0, 1), time.Now())
+		s, e := a.availability(context.Background(), u, mt, d, d.AddDate(0, 0, 1), time.Now(), Booking{})
 		if e != nil {
 			t.Fatal(e)
 		}

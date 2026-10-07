@@ -19,6 +19,21 @@ type Slot struct {
 
 func overlaps(a, b Span) bool { return a.Start.Before(b.End) && a.End.After(b.Start) }
 
+// subtract returns what is left of s outside hole.
+func subtract(s, hole Span) []Span {
+	if !overlaps(s, hole) {
+		return []Span{s}
+	}
+	var out []Span
+	if s.Start.Before(hole.Start) {
+		out = append(out, Span{s.Start, hole.Start})
+	}
+	if s.End.After(hole.End) {
+		out = append(out, Span{hole.End, s.End})
+	}
+	return out
+}
+
 // Slots are evaluated in the meeting type's IANA timezone, then represented as UTC instants.
 // Iterating instants rather than constructing wall times handles skipped/repeated DST hours.
 func generateSlots(mt MeetingType, day time.Time, now time.Time, busy []Span) []Slot {
@@ -63,7 +78,8 @@ func generateSlots(mt MeetingType, day time.Time, now time.Time, busy []Span) []
 
 // availability returns open slots starting in [from, to). Guests view the range in their own
 // timezone, so it can straddle several of the meeting type's days; Google is asked once for all of it.
-func (a *App) availability(ctx context.Context, u User, t MeetingType, from, to time.Time, now time.Time) ([]Slot, error) {
+// A booking being rescheduled is passed as moving, so its current time does not block its new one.
+func (a *App) availability(ctx context.Context, u User, t MeetingType, from, to time.Time, now time.Time, moving Booking) ([]Slot, error) {
 	if !u.Enabled || !t.Active || !u.WriteCalendar.Valid || !from.Before(to) {
 		return nil, nil
 	}
@@ -101,7 +117,7 @@ func (a *App) availability(ctx context.Context, u User, t MeetingType, from, to 
 	if !hasWrite {
 		return nil, errors.New("booking calendar unavailable")
 	}
-	busy, e := a.google.Busy(ctx, selected, busyFrom, busyTo)
+	busy, e := a.busy(ctx, selected, busyFrom, busyTo, moving)
 	if e != nil {
 		return nil, e
 	}
@@ -109,7 +125,7 @@ func (a *App) availability(ctx context.Context, u User, t MeetingType, from, to 
 		var start, end int64
 		e := s.Scan(&start, &end)
 		return Span{time.Unix(start, 0), time.Unix(end, 0)}, e
-	}, `SELECT block_start,block_end FROM bookings WHERE user_id=? AND status IN ('requested','pending','confirmed','cancel_pending') AND block_start<? AND block_end>?`, u.ID, busyTo.Unix(), busyFrom.Unix())
+	}, `SELECT block_start,block_end FROM bookings WHERE user_id=? AND status IN ('requested','pending','confirmed','cancel_pending') AND block_start<? AND block_end>? AND id<>?`, u.ID, busyTo.Unix(), busyFrom.Unix(), moving.ID)
 	if e != nil {
 		return nil, e
 	}
@@ -126,4 +142,26 @@ func (a *App) availability(ctx context.Context, u User, t MeetingType, from, to 
 		}
 	}
 	return out, nil
+}
+
+// busy asks Google when the calendars cs are busy. A booking being moved frees the time
+// of its own event, which only its destination calendar holds; a request has no event yet.
+func (a *App) busy(ctx context.Context, cs []Calendar, from, to time.Time, moving Booking) ([]Span, error) {
+	i := slices.IndexFunc(cs, func(c Calendar) bool { return c.ID == moving.CalendarID })
+	if i < 0 || (moving.Status != "pending" && moving.Status != "confirmed") {
+		return a.google.Busy(ctx, cs, from, to)
+	}
+	own, e := a.google.Busy(ctx, cs[i:i+1], from, to)
+	if e != nil {
+		return nil, e
+	}
+	busy, e := a.google.Busy(ctx, slices.Delete(slices.Clone(cs), i, i+1), from, to)
+	if e != nil {
+		return nil, e
+	}
+	event := Span{time.Unix(moving.Start, 0), time.Unix(moving.End, 0)}
+	for _, s := range own {
+		busy = append(busy, subtract(s, event)...)
+	}
+	return busy, nil
 }

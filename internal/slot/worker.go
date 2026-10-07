@@ -2,6 +2,8 @@ package slot
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 )
@@ -133,4 +135,41 @@ func (a *App) cancelBooking(ctx context.Context, b Booking) error {
 	// A request has no Google event yet, so it is cancelled on the spot.
 	_, e := a.db.ExecContext(ctx, "UPDATE bookings SET status=CASE status WHEN 'requested' THEN 'cancelled' ELSE 'cancel_pending' END,next_attempt=0 WHERE id=? AND status IN ('requested','pending','confirmed')", b.ID)
 	return e
+}
+
+// errNotMoved means a booking kept its time: the new one was just taken, or the booking changed.
+var errNotMoved = errors.New("booking not moved")
+
+// moveBooking moves b to start, taking t's current length and buffer. A request stays a
+// request; a booking goes back to pending, and the worker then moves its Google event.
+func (a *App) moveBooking(ctx context.Context, b Booking, t MeetingType, start int64) error {
+	a.syncMu.Lock()
+	defer a.syncMu.Unlock()
+	end := start + int64(t.Duration*60)
+	blockStart, blockEnd := start-int64(t.Buffer*60), end+int64(t.Buffer*60)
+	movable := "('pending','confirmed')"
+	if b.Status == "requested" {
+		movable = "('requested')"
+	}
+	// The insert trigger guards new bookings; a move runs the same overlap check itself,
+	// since a trigger on updates would also refuse moves copied back from Google.
+	res, e := a.db.ExecContext(ctx, `UPDATE bookings SET start=?,end=?,block_start=?,block_end=?,status=CASE status WHEN 'requested' THEN 'requested' ELSE 'pending' END,next_attempt=0
+WHERE id=? AND status IN `+movable+` AND NOT EXISTS (
+ SELECT 1 FROM bookings o WHERE o.id<>bookings.id AND (o.user_id=bookings.user_id OR o.calendar_id IN (
+  SELECT id FROM calendars WHERE google_id=(SELECT google_id FROM calendars WHERE id=bookings.calendar_id)
+ ))
+ AND o.status IN ('requested','pending','confirmed','cancel_pending')
+ AND o.block_start<? AND o.block_end>?
+)`, start, end, blockStart, blockEnd, b.ID, blockEnd, blockStart)
+	if e != nil {
+		return fmt.Errorf("moving booking: %w", e)
+	}
+	n, e := res.RowsAffected()
+	if e != nil {
+		return fmt.Errorf("moving booking: %w", e)
+	}
+	if n == 0 {
+		return errNotMoved
+	}
+	return nil
 }

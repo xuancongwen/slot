@@ -15,6 +15,7 @@ A small Google Calendar booking app for a home lab. One Go process, one SQLite d
 - Locations in each user's profile: Google Meet (a fresh link per booking, created by Google) plus any links or addresses, such as a Zoom room. Guests pick one, the default preselected, or enter their own.
 - Pause/publish controls, upcoming and past booking list, cancellation, and password changes.
 - Google invitations and an optional `.ics` download.
+- Guests reschedule from their booking's page. The Google event moves in place and Google sends the guest an update, rather than a cancellation followed by a new invitation.
 - Durable Google write retries, including after a restart. Uncertain bookings continue reserving the slot.
 - Separate public/admin route tables, each with its own middleware and CSRF cookie. The admin is served under `/admin`, or on its own origin and listener with `HOST_ADMIN_SEPARATELY=true`.
 
@@ -144,7 +145,7 @@ The app does not trust `X-Forwarded-For`. Its in-process rate limit therefore gr
 3. An SQLite trigger reserves the interval atomically. Requests awaiting approval, pending bookings, and cancelling bookings block time too. Hosts using the same Google destination calendar cannot reserve overlapping times through Slot.
 4. A background worker runs every 15 seconds and inserts the Google event using a stable ID. A timed-out write can be retried without intentionally creating a second event. The signed form ticket makes duplicate form submissions return the same booking.
 5. The booking is marked confirmed only after Google accepts it or an earlier insertion is verified. Google is asked to notify the guest. The confirmation page accurately describes pending states and refreshes while waiting.
-6. Cancellation is also durable: the slot is not released until Google confirms deletion or reports that the event is already absent.
+6. Cancellation is also durable: the slot is not released until Google confirms deletion or reports that the event is already absent. Rescheduling rechecks the new time on submission, moves the reservation atomically, and returns the booking to pending until Google has moved the event.
 7. Every five minutes until it ends, each confirmed booking is compared with its Google event. Deleting the event in Google cancels the booking. Moving it moves the booking and its buffers. If the guest declines, Slot removes the event and frees the time. When Google can't be reached, nothing changes and the admin booking list shows the error.
 
 Google failures back off up to one hour. The admin booking list shows sync errors and offers **Retry sync** and **Cancel**. A pending reservation does not silently expire: a timeout may mean Google already created the event. Reconnect the account if its authorization has expired.
@@ -156,7 +157,7 @@ Google Calendar does not offer an atomic “insert only if still free” operati
 ## Limits
 
 - Guests pick a date on a month calendar and see times in their own timezone, detected by the browser and changeable on the page. Without JavaScript the page shows the meeting type's timezone. Calendar invitations display in the guest's own calendar timezone.
-- To reschedule, cancel and book again.
+- A rescheduled booking takes its meeting type's current hours, length, and buffer. It needs the type to still be published. A booking already approved on a type that requires approval can't be rescheduled yet; the guest cancels and requests again.
 - A forgotten host password cannot be reset by email. Protect registration through the private admin interface and optional code.
 - Reconnect or refresh Google accounts from the admin page. To disconnect one, revoke Slot's permissions from the Google account; affected booking operations then fail closed until it is reconnected or reconfigured.
 - Changes made in Google reach Slot within about five minutes, so a slot freed or moved there can briefly still look taken, or free, on the booking page. Edits to anything other than the time, such as the title or location, are not copied back.

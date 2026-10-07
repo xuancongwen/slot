@@ -1,10 +1,12 @@
 package slot
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 )
@@ -24,7 +26,99 @@ func (a *App) manage(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, r, e)
 		return
 	}
-	a.render(w, r, "manage", Page{Title: "Your booking", Booking: b, User: u}, http.StatusOK)
+	_, movable, e := a.rescheduleType(r.Context(), b)
+	if e != nil {
+		a.internal(w, r, e)
+		return
+	}
+	a.render(w, r, "manage", Page{Title: "Your booking", Booking: b, User: u, CanReschedule: movable}, http.StatusOK)
+}
+
+// rescheduleType returns the meeting type whose hours b may move within, and whether
+// the guest may move it now. Until the host can approve a move, a booking needing
+// approval moves only while it is still a request.
+func (a *App) rescheduleType(ctx context.Context, b Booking) (MeetingType, bool, error) {
+	upcoming := b.Start > time.Now().Unix() && (b.Status == "requested" || b.Status == "pending" || b.Status == "confirmed")
+	if !upcoming || !b.MeetingTypeID.Valid {
+		return MeetingType{}, false, nil
+	}
+	t, e := scanMeetingType(a.db.QueryRowContext(ctx, "SELECT "+meetingTypeColumns+" FROM meeting_types WHERE id=? AND user_id=? AND active=1", b.MeetingTypeID.Int64, b.UserID))
+	if errors.Is(e, sql.ErrNoRows) {
+		return t, false, nil
+	}
+	if e != nil {
+		return t, false, e
+	}
+	return t, !t.Approval || b.Status == "requested", nil
+}
+
+// movableBooking loads the booking named in the URL, with its host and meeting type,
+// and answers the request itself when the guest may not move it.
+func (a *App) movableBooking(w http.ResponseWriter, r *http.Request) (Booking, User, MeetingType, bool) {
+	b, e := a.getBooking(r.Context(), r.PathValue("token"))
+	if errors.Is(e, sql.ErrNoRows) {
+		http.NotFound(w, r)
+		return b, User{}, MeetingType{}, false
+	}
+	if e != nil {
+		a.internal(w, r, e)
+		return b, User{}, MeetingType{}, false
+	}
+	t, movable, e := a.rescheduleType(r.Context(), b)
+	if e != nil {
+		a.internal(w, r, e)
+		return b, User{}, t, false
+	}
+	if !movable {
+		a.fail(w, r, http.StatusConflict, "This booking can no longer be rescheduled here. Cancel it and book a new time instead.")
+		return b, User{}, t, false
+	}
+	u, e := a.userByID(r.Context(), b.UserID)
+	if e != nil {
+		a.internal(w, r, e)
+		return b, u, t, false
+	}
+	return b, u, t, true
+}
+
+func (a *App) reschedulePage(w http.ResponseWriter, r *http.Request) {
+	if b, u, t, ok := a.movableBooking(w, r); ok {
+		a.showBooking(w, r, u, t, "/manage/"+b.ManageToken+"/reschedule", b)
+	}
+}
+
+func (a *App) reschedule(w http.ResponseWriter, r *http.Request) {
+	b, u, t, ok := a.movableBooking(w, r)
+	if !ok {
+		return
+	}
+	start, _, _, e := a.verifyTicket(r.PostForm.Get("ticket"), u, t)
+	if e != nil {
+		a.fail(w, r, http.StatusBadRequest, "This form expired. Return to your booking and choose a new time again.")
+		return
+	}
+	// A repeated submit finds the booking already moved.
+	if start == b.Start {
+		http.Redirect(w, r, "/manage/"+b.ManageToken, http.StatusSeeOther)
+		return
+	}
+	slots, e := a.availability(r.Context(), u, t, time.Unix(start, 0), time.Unix(start+1, 0), time.Now(), b)
+	if e != nil {
+		a.fail(w, r, http.StatusServiceUnavailable, "Could not verify availability with Google. Please try again.")
+		return
+	}
+	if !slices.ContainsFunc(slots, func(s Slot) bool { return s.Start == start }) {
+		a.fail(w, r, http.StatusConflict, "That time is no longer available. Please choose another.")
+		return
+	}
+	if e = a.moveBooking(r.Context(), b, t, start); errors.Is(e, errNotMoved) {
+		a.fail(w, r, http.StatusConflict, "Your booking kept its time: the new one was just taken, or the booking changed. Please check it and try again.")
+		return
+	} else if e != nil {
+		a.internal(w, r, e)
+		return
+	}
+	http.Redirect(w, r, "/manage/"+b.ManageToken, http.StatusSeeOther)
 }
 
 func (a *App) cancelPublic(w http.ResponseWriter, r *http.Request) {

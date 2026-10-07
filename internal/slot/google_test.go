@@ -77,9 +77,11 @@ func TestGoogleInsertConflictAndDelete(t *testing.T) {
 			}
 			w.WriteHeader(409)
 		case "GET":
-			json.NewEncoder(w).Encode(map[string]any{"status": "confirmed", "extendedProperties": map[string]any{"private": map[string]string{"slotBooking": b.ID}}})
+			json.NewEncoder(w).Encode(existingEvent(b, b.Start, b.End))
 		case "DELETE":
 			w.WriteHeader(410)
+		default:
+			t.Errorf("unexpected %s", r.Method)
 		}
 	}))
 	defer s.Close()
@@ -92,6 +94,52 @@ func TestGoogleInsertConflictAndDelete(t *testing.T) {
 	}
 	if posts != 1 {
 		t.Fatal(posts)
+	}
+}
+
+// existingEvent is Google's copy of b's event, held from start to end.
+func existingEvent(b Booking, start, end int64) map[string]any {
+	at := func(n int64) map[string]string {
+		return map[string]string{"dateTime": time.Unix(n, 0).UTC().Format(time.RFC3339)}
+	}
+	return map[string]any{"status": "confirmed", "start": at(start), "end": at(end), "extendedProperties": map[string]any{"private": map[string]string{"slotBooking": b.ID}}}
+}
+
+func TestGoogleInsertMovesRescheduledEvent(t *testing.T) {
+	a, _ := testApp(t)
+	u := seedHost(t, a, "alex")
+	c, _ := a.bookingCalendar(context.Background(), u.WriteCalendar.Int64)
+	b := bookingFor(u, tomorrow().Add(time.Hour))
+	var patch struct {
+		Start, End struct{ DateTime time.Time }
+		Reminders  struct{ Overrides []struct{ Minutes int } }
+	}
+	patches := 0
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "POST":
+			w.WriteHeader(409)
+		case "GET":
+			json.NewEncoder(w).Encode(existingEvent(b, tomorrow().Unix(), tomorrow().Add(30*time.Minute).Unix()))
+		case "PATCH":
+			patches++
+			if !strings.HasSuffix(r.URL.Path, "/events/"+b.ID) || r.URL.Query().Get("sendUpdates") != "all" {
+				t.Errorf("patch %s", r.URL)
+			}
+			json.NewDecoder(r.Body).Decode(&patch)
+			json.NewEncoder(w).Encode(map[string]any{})
+		}
+	}))
+	defer s.Close()
+	g := &Google{app: a, baseURL: s.URL}
+	if _, e := g.Insert(context.Background(), c, b); e != nil {
+		t.Fatal(e)
+	}
+	if patches != 1 || patch.Start.DateTime.Unix() != b.Start || patch.End.DateTime.Unix() != b.End {
+		t.Fatalf("%d patches, %+v", patches, patch)
+	}
+	if len(patch.Reminders.Overrides) != 1 || patch.Reminders.Overrides[0].Minutes != reminderMinutes(b) {
+		t.Fatalf("reminder not moved: %+v", patch.Reminders)
 	}
 }
 

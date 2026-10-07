@@ -18,7 +18,8 @@ import (
 
 type CalendarProvider interface {
 	Busy(context.Context, []Calendar, time.Time, time.Time) ([]Span, error)
-	// Insert returns the Google Meet link when the booking asked for one.
+	// Insert creates the booking's event, or moves it to the booking's time when it
+	// already exists, and returns the Google Meet link when the booking asked for one.
 	Insert(context.Context, Calendar, Booking) (string, error)
 	Delete(context.Context, Calendar, Booking) error
 	Check(context.Context, Calendar, Booking) (EventState, error)
@@ -243,6 +244,7 @@ func (g *Google) Insert(ctx context.Context, c Calendar, b Booking) (string, err
 		var event struct {
 			Status             string
 			HangoutLink        string
+			Start, End         struct{ DateTime time.Time }
 			ExtendedProperties struct{ Private map[string]string }
 		}
 		if err := g.request(ctx, token, "GET", path+"/"+b.ID, nil, &event); err != nil {
@@ -253,6 +255,13 @@ func (g *Google) Insert(ctx context.Context, c Calendar, b Booking) (string, err
 		}
 		if event.ExtendedProperties.Private["slotBooking"] != b.ID {
 			return "", errors.New("Google event ID conflict")
+		}
+		if event.Start.DateTime.Unix() != b.Start || event.End.DateTime.Unix() != b.End {
+			// The guest rescheduled, so the event moves rather than being created again.
+			move := map[string]any{"start": body["start"], "end": body["end"], "reminders": body["reminders"]}
+			if err := g.request(ctx, token, "PATCH", path+"/"+b.ID+"?sendUpdates=all", move, nil); err != nil {
+				return "", err
+			}
 		}
 		return event.HangoutLink, nil
 	}
