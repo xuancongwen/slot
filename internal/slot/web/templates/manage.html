@@ -38,6 +38,9 @@
     {{if or (eq .Booking.Status "pending") (eq .Booking.Status "cancel_pending")}}
     <a class="button secondary full" href="/manage/{{.Booking.ManageToken}}">Refresh status</a>
     {{end}}
+    {{if .CanReschedule}}
+    <a class="button secondary full" href="/manage/{{.Booking.ManageToken}}/reschedule?tz={{guestZone .Booking}}">{{if eq .Booking.Status "requested"}}Request a different time{{else}}Reschedule{{end}}</a>
+    {{end}}
     {{if or (eq .Booking.Status "confirmed") (eq .Booking.Status "pending")}}
     <form method="post" action="/manage/{{.Booking.ManageToken}}/cancel" data-confirm="Cancel this booking?">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
@@ -49,7 +52,7 @@
       <button class="text-button danger">Withdraw request</button>
     </form>
     {{end}}
-    <p class="hint">Save this page’s link to manage your booking. Anyone with the link can cancel it.</p>
+    <p class="hint">Save this page’s link to manage your booking. Anyone with the link can reschedule or cancel it.</p>
     <a class="back-link" href="/b/{{.User.Slug}}">← Back to {{.User.Name}}’s booking page</a>
   </section>
 </main>

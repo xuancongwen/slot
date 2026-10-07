@@ -49,6 +49,7 @@ ALTER TABLE meeting_types DROP COLUMN guest_location;`,
 INSERT INTO blocks_old(id,user_id,day) SELECT id,user_id,first_day FROM blocks;
 DROP TABLE blocks;
 ALTER TABLE blocks_old RENAME TO blocks;`,
+	10: "ALTER TABLE bookings DROP COLUMN meeting_type_id",
 }
 
 func TestUpgrade(t *testing.T) {
@@ -56,8 +57,11 @@ func TestUpgrade(t *testing.T) {
 		t.Run(fmt.Sprintf("from version %d", from), func(t *testing.T) {
 			a, _ := testApp(t)
 			u := seedHost(t, a, "alex")
-			// A booking from before the upgrade must survive the bookings rebuild.
-			if e := a.reserve(context.Background(), bookingFor(u, tomorrow().AddDate(0, 0, 1))); e != nil {
+			// A booking from before the upgrade must survive the bookings rebuild,
+			// and gains the meeting type its title names.
+			old := bookingFor(u, tomorrow().AddDate(0, 0, 1))
+			old.Title = "Chat: Guest / Alex"
+			if e := a.reserve(context.Background(), old); e != nil {
 				t.Fatal(e)
 			}
 			// As does a day off, which versions before 10 store as a single day.
@@ -86,6 +90,9 @@ func TestUpgrade(t *testing.T) {
 			var n int
 			if e = b.db.QueryRow("SELECT count(*) FROM bookings").Scan(&n); e != nil || n != 1 {
 				t.Fatalf("%d bookings kept, error %v", n, e)
+			}
+			if kept, e := b.getBooking(context.Background(), old.ManageToken); e != nil || kept.MeetingTypeID.Int64 != chatType(t, b, u).ID {
+				t.Fatalf("booking type %v, error %v", kept.MeetingTypeID, e)
 			}
 			// Meeting types from before per-type locations keep offering every location.
 			if e = b.db.QueryRow("SELECT count(*) FROM meeting_types WHERE all_locations=1 AND guest_location=1 AND id NOT IN (SELECT meeting_type_id FROM meeting_type_locations)").Scan(&n); e != nil || n != 1 {

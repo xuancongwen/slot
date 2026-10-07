@@ -81,7 +81,7 @@ func (a *App) showHost(w http.ResponseWriter, r *http.Request, u User, viewURL s
 		return
 	}
 	if len(ts) == 1 {
-		a.showBooking(w, r, u, ts[0], viewURL)
+		a.showBooking(w, r, u, ts[0], viewURL, Booking{})
 		return
 	}
 	a.render(w, r, "host", Page{Title: "Meet with " + u.Name, User: u, MeetingTypes: ts, BookingURL: "/b/" + u.Slug}, http.StatusOK)
@@ -96,13 +96,14 @@ type CalendarDay struct {
 
 func (a *App) publicPage(w http.ResponseWriter, r *http.Request) {
 	if u, t, ok := a.publicMeetingType(w, r); ok {
-		a.showBooking(w, r, u, t, "/b/"+u.Slug+"/"+t.Slug)
+		a.showBooking(w, r, u, t, "/b/"+u.Slug+"/"+t.Slug, Booking{})
 	}
 }
 
 // showBooking renders t's calendar at viewURL. The booking form always posts to the
 // type's own URL, so the same POST handler serves every place the calendar appears.
-func (a *App) showBooking(w http.ResponseWriter, r *http.Request, u User, t MeetingType, viewURL string) {
+// When a guest reschedules, moving is their booking and the form moves it instead.
+func (a *App) showBooking(w http.ResponseWriter, r *http.Request, u User, t MeetingType, viewURL string, moving Booking) {
 	host, e := time.LoadLocation(t.Timezone)
 	if e != nil {
 		a.internal(w, r, e)
@@ -142,13 +143,17 @@ func (a *App) showBooking(w http.ResponseWriter, r *http.Request, u User, t Meet
 	}
 	monthEnd := monthStart.AddDate(0, 1, 0)
 	p := Page{Title: t.Name + " with " + u.Name, User: u, MeetingType: t, Date: date, BookingURL: "/b/" + u.Slug + "/" + t.Slug, ViewURL: viewURL, GuestTimezone: guestTZ, DetectTimezone: detect, Analytics: true, Timezones: a.timezones, Month: month, MonthLabel: monthStart.Format("January 2006")}
+	if moving.ID != "" {
+		// The page's URL holds the manage token, so it is kept from the tracker.
+		p.Title, p.Booking, p.BookingURL, p.Analytics = "Reschedule "+t.Name+" with "+u.Name, moving, viewURL, false
+	}
 	if month > minDate[:7] {
 		p.PrevMonth = monthStart.AddDate(0, -1, 0).Format("2006-01")
 	}
 	if month < maxDate[:7] {
 		p.NextMonth = monthEnd.Format("2006-01")
 	}
-	slots, e := a.availability(r.Context(), u, t, monthStart, monthEnd, now)
+	slots, e := a.availability(r.Context(), u, t, monthStart, monthEnd, now, moving)
 	if e != nil {
 		slog.Warn("availability unavailable", "host", u.ID, "error", e)
 		p.Error = "Availability could not be verified with Google. Please try again shortly."
@@ -308,7 +313,7 @@ func (a *App) book(w http.ResponseWriter, r *http.Request) {
 	if !validTimezone(guestTZ) {
 		guestTZ = t.Timezone
 	}
-	slots, e := a.availability(r.Context(), u, t, time.Unix(start, 0), time.Unix(start+1, 0), time.Now())
+	slots, e := a.availability(r.Context(), u, t, time.Unix(start, 0), time.Unix(start+1, 0), time.Now(), Booking{})
 	if e != nil {
 		a.fail(w, r, http.StatusServiceUnavailable, "Could not verify availability with Google. Please try again.")
 		return
@@ -327,7 +332,7 @@ func (a *App) book(w http.ResponseWriter, r *http.Request) {
 	if t.Approval {
 		status = "requested"
 	}
-	b := Booking{ID: id, UserID: u.ID, CalendarID: u.WriteCalendar.Int64, GuestName: name, GuestEmail: email, Start: start, End: start + int64(t.Duration*60), BlockStart: start - int64(t.Buffer*60), BlockEnd: start + int64((t.Duration+t.Buffer)*60), Title: t.Name + ": " + name + " / " + u.Name, Location: location, Meet: meet, Timezone: t.Timezone, GuestTimezone: guestTZ, Reason: reason, ManageToken: token, Status: status, Created: time.Now().Unix()}
+	b := Booking{ID: id, UserID: u.ID, CalendarID: u.WriteCalendar.Int64, GuestName: name, GuestEmail: email, Start: start, End: start + int64(t.Duration*60), BlockStart: start - int64(t.Buffer*60), BlockEnd: start + int64((t.Duration+t.Buffer)*60), Title: t.Name + ": " + name + " / " + u.Name, Location: location, Meet: meet, Timezone: t.Timezone, GuestTimezone: guestTZ, Reason: reason, ManageToken: token, Status: status, Created: time.Now().Unix(), MeetingTypeID: sql.NullInt64{Int64: t.ID, Valid: true}}
 	if e = a.reserve(r.Context(), b); e != nil {
 		if existing, err := a.getBooking(r.Context(), token); err == nil {
 			http.Redirect(w, r, "/manage/"+existing.ManageToken, http.StatusSeeOther)

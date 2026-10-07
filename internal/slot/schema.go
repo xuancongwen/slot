@@ -8,7 +8,7 @@ import (
 // Bump schemaVersion whenever schema.sql changes shape, and add the step that brings
 // the previous version's database up to it. Databases older than the first step
 // predate migrations and must start fresh.
-const schemaVersion = 10
+const schemaVersion = 11
 
 func migrate(db *sql.DB) error {
 	steps := map[int]string{
@@ -17,6 +17,7 @@ func migrate(db *sql.DB) error {
 		6: "ALTER TABLE bookings ADD COLUMN checked INTEGER NOT NULL DEFAULT 0;",
 		// SQLite cannot alter a CHECK constraint, so the new statuses need a rebuilt table.
 		// Dropping the old table drops its indexes and trigger; schema.sql recreates them.
+		// The column list is frozen at version 7, not bookingColumns, which grows later.
 		7: `ALTER TABLE meeting_types ADD COLUMN approval INTEGER NOT NULL DEFAULT 0;
 CREATE TABLE bookings_new (
  id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
@@ -32,7 +33,7 @@ CREATE TABLE bookings_new (
  checked INTEGER NOT NULL DEFAULT 0,
  CHECK(end > start), CHECK(block_end > block_start)
 );
-INSERT INTO bookings_new(` + bookingColumns + `,checked) SELECT ` + bookingColumns + `,checked FROM bookings;
+INSERT INTO bookings_new(id,user_id,calendar_id,guest_name,guest_email,start,end,block_start,block_end,title,location,meet,timezone,guest_timezone,reason,manage_token,status,created,attempts,next_attempt,last_error,checked) SELECT id,user_id,calendar_id,guest_name,guest_email,start,end,block_start,block_end,title,location,meet,timezone,guest_timezone,reason,manage_token,status,created,attempts,next_attempt,last_error,checked FROM bookings;
 DROP TABLE bookings;
 ALTER TABLE bookings_new RENAME TO bookings;`,
 		8: `ALTER TABLE meeting_types ADD COLUMN all_locations INTEGER NOT NULL DEFAULT 1;
@@ -50,6 +51,10 @@ CREATE TABLE meeting_type_locations (
 INSERT INTO blocks_new(id,user_id,first_day,last_day) SELECT id,user_id,day,day FROM blocks;
 DROP TABLE blocks;
 ALTER TABLE blocks_new RENAME TO blocks;`,
+		// Earlier bookings named their type only in the title, which starts "Type name: ".
+		// A type renamed since leaves the booking without one, so it cannot be rescheduled.
+		10: `ALTER TABLE bookings ADD COLUMN meeting_type_id INTEGER REFERENCES meeting_types(id) ON DELETE SET NULL;
+UPDATE bookings SET meeting_type_id=(SELECT id FROM meeting_types m WHERE m.user_id=bookings.user_id AND substr(bookings.title,1,length(m.name)+2)=m.name||': ' ORDER BY m.duration*60=bookings.end-bookings.start DESC,m.id LIMIT 1);`,
 	}
 	var version, tables int
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {

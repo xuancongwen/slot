@@ -20,13 +20,18 @@ type fakeCalendar struct {
 	insertCalls, deleteCalls      int
 	checkCalls                    int
 	events                        map[string]bool
+	// inserted is the booking most recently passed to Insert.
+	inserted Booking
 	// remote is what Check reports for an event that still exists.
 	remote EventState
 }
 
-func (f *fakeCalendar) Busy(context.Context, []Calendar, time.Time, time.Time) ([]Span, error) {
+func (f *fakeCalendar) Busy(_ context.Context, cs []Calendar, _, _ time.Time) ([]Span, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if len(cs) == 0 {
+		return nil, nil
+	}
 	return f.busy, f.busyErr
 }
 
@@ -36,6 +41,7 @@ func (f *fakeCalendar) Insert(_ context.Context, _ Calendar, b Booking) (string,
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.insertCalls++
+	f.inserted = b
 	f.events[b.ID] = true
 	if b.Meet && f.insertErr == nil {
 		return fakeMeetLink, nil

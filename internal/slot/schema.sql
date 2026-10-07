@@ -70,6 +70,8 @@ CREATE TABLE IF NOT EXISTS bookings (
  next_attempt INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',
  -- When a confirmed booking's Google event was last compared with Slot's copy.
  checked INTEGER NOT NULL DEFAULT 0,
+ -- The type a guest booked, whose hours and length apply when they reschedule.
+ meeting_type_id INTEGER REFERENCES meeting_types(id) ON DELETE SET NULL,
  CHECK(end > start), CHECK(block_end > block_start)
 );
 CREATE INDEX IF NOT EXISTS bookings_host_time ON bookings(user_id,block_start,block_end);

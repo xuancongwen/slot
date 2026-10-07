@@ -7,6 +7,12 @@
       <span>◷</span>
       <div><strong>{{.MeetingType.Duration}} minutes</strong><small>Duration</small></div>
     </div>
+    {{if .Booking.ID}}
+    <div class="meeting-detail">
+      <span>↻</span>
+      <div><strong>{{dateTime .Booking.Start .GuestTimezone}}</strong><small>Your current time, which this replaces</small></div>
+    </div>
+    {{end}}
     <div class="meeting-detail">
       <span>◎</span>
       <div><strong>{{.GuestTimezone}}</strong><small>Times shown in this timezone, currently {{utcOffset .GuestTimezone}}.</small></div>
@@ -26,11 +32,24 @@
     {{template "messages" .}}
     {{if .Start}}
     <a class="back-link" href="{{.ViewURL}}?tz={{.GuestTimezone}}&amp;month={{.Month}}&amp;date={{.Date}}">← Pick a different time</a>
-    <h2>Your details</h2>
+    <h2>{{if .Booking.ID}}Your new time{{else}}Your details{{end}}</h2>
     <div class="selected-time">
       <strong>{{.SelectedLabel}}</strong>
       <span>{{.SlotLabel}} · {{.MeetingType.Duration}} min · {{.GuestTimezone}}</span>
     </div>
+    {{if .Booking.ID}}
+    <form method="post" action="{{.BookingURL}}">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <input type="hidden" name="ticket" value="{{.Ticket}}">
+      {{if eq .Booking.Status "requested"}}
+      <button class="full">Move my request</button>
+      <p class="hint">Your request moves to this time, and your current time opens up for others.</p>
+      {{else}}
+      <button class="full">Move my booking</button>
+      <p class="hint">Your current time opens up for others. Google will update your calendar invitation.</p>
+      {{end}}
+    </form>
+    {{else}}
     <form method="post" action="{{.BookingURL}}">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <input type="hidden" name="ticket" value="{{.Ticket}}">
@@ -68,6 +87,7 @@
       <p class="hint">Your host will receive your name, email, and reason for meeting. Google will send a calendar invitation once the booking is confirmed.</p>
       {{end}}
     </form>
+    {{end}}
     {{else if .Weeks}}
     <h2>Choose a day & time</h2>
     <div class="scheduler{{if .Date}} with-times{{end}}">
