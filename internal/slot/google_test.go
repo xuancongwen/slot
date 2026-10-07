@@ -151,7 +151,14 @@ func TestGoogleInsertRequestsMeet(t *testing.T) {
 	b.Reason = "Plan the launch"
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Description    string
+			Description string
+			Reminders   struct {
+				UseDefault bool
+				Overrides  []struct {
+					Method  string
+					Minutes int
+				}
+			}
 			ConferenceData struct {
 				CreateRequest struct {
 					RequestID             string
@@ -164,6 +171,9 @@ func TestGoogleInsertRequestsMeet(t *testing.T) {
 		if r.URL.Query().Get("conferenceDataVersion") != "1" || req.RequestID != b.ID || req.ConferenceSolutionKey.Type != "hangoutsMeet" {
 			t.Errorf("Meet not requested: %s %+v", r.URL.RawQuery, req)
 		}
+		if rs := body.Reminders; rs.UseDefault || len(rs.Overrides) != 1 || rs.Overrides[0].Method != "popup" || rs.Overrides[0].Minutes != reminderMinutes(b) {
+			t.Errorf("reminders %+v", rs)
+		}
 		if !strings.HasPrefix(body.Description, "Plan the launch\n\nManage or cancel: ") {
 			t.Errorf("description %q", body.Description)
 		}
@@ -174,6 +184,29 @@ func TestGoogleInsertRequestsMeet(t *testing.T) {
 	link, e := g.Insert(context.Background(), c, b)
 	if e != nil || link != fakeMeetLink {
 		t.Fatalf("link %q, error %v", link, e)
+	}
+}
+
+func TestReminderMinutes(t *testing.T) {
+	tests := []struct {
+		name, tz, start string
+		want            int
+	}{
+		{"an hour before at ten", "America/New_York", "2026-10-07T10:00:00-04:00", 60},
+		{"an hour before in the afternoon", "America/New_York", "2026-10-07T15:30:00-04:00", 60},
+		{"evening before just under ten", "America/New_York", "2026-10-07T09:59:00-04:00", 779},
+		{"evening before at midnight", "America/New_York", "2026-10-07T00:00:00-04:00", 180},
+		{"evening before across month end", "Europe/London", "2026-11-01T08:00:00Z", 660},
+		{"evening before across DST end", "America/New_York", "2026-11-01T09:00:00-05:00", 780},
+		{"unknown zone falls back to UTC", "Nowhere/Else", "2026-10-07T09:00:00Z", 720},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			start, _ := time.Parse(time.RFC3339, tt.start)
+			if got := reminderMinutes(Booking{Start: start.Unix(), Timezone: tt.tz}); got != tt.want {
+				t.Errorf("got %d minutes, want %d", got, tt.want)
+			}
+		})
 	}
 }
 
